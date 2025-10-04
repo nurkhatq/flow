@@ -14,6 +14,13 @@ import {
 
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
+const WORK_START_HOUR = 8;
+const WORK_END_HOUR = 22;
+const HOUR_SLOTS = Array.from(
+  { length: WORK_END_HOUR - WORK_START_HOUR + 1 },
+  (_, i) => `${(i + WORK_START_HOUR).toString().padStart(2, '0')}:00`
+);
+
 const TeamFlow = () => {
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -159,7 +166,7 @@ const TeamFlow = () => {
     }
   };
 
-  const addTask = async () => {
+  const addTask = () => {
     if (!taskForm.title.trim() || taskForm.employeeIds.length === 0) return;
     
     const taskData = {
@@ -168,47 +175,31 @@ const TeamFlow = () => {
       createdBy: currentUser?.id
     };
     
-    try {
-      const url = '/api/tasks';
-      const method = editingTask ? 'PUT' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskData)
-      });
-
-      if (editingTask) {
-        await response.json();
-        // Обновляем локальное состояние
-        setTasks(tasks.map(t => t.id === editingTask.id ? { ...taskData, id: editingTask.id } : t));
-      } else {
-        const newTask = await response.json();
-        setTasks([...tasks, newTask]);
-        
-        // Создаем уведомления
-        for (const employeeId of taskForm.employeeIds) {
-          if (employeeId !== currentUser?.id) {
-            await fetch('/api/notifications', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                id: Date.now().toString() + employeeId,
-                employeeId: employeeId,
-                taskId: newTask.id,
-                message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`
-              })
-            });
-          }
-        }
-      }
-      
-      setShowTaskModal(false);
-      setEditingTask(null);
-      resetTaskForm();
-    } catch (error) {
-      console.error('Error adding task:', error);
+    if (editingTask) {
+      setTasks(tasks.map(t => t.id === editingTask.id ? taskData : t));
+    } else {
+      setTasks(prevTasks => [...prevTasks, taskData]);
     }
+
+    // Create notifications
+    const newNotifications = taskForm.employeeIds
+      .filter(id => id !== currentUser?.id)
+      .map(employeeId => ({
+        id: Date.now().toString() + employeeId,
+        employeeId,
+        taskId: taskData.id,
+        message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`,
+        date: new Date().toISOString(),
+        read: false
+      }));
+
+    if (newNotifications.length > 0) {
+      setNotifications(prev => [...prev, ...newNotifications]);
+    }
+    
+    setShowTaskModal(false);
+    setEditingTask(null);
+    resetTaskForm();
   };
 
   const resetTaskForm = () => {
@@ -405,8 +396,8 @@ const TeamFlow = () => {
 
   const getTaskPosition = (startTime: string) => {
     const [hours, minutes] = startTime.split(':').map(Number);
-    const totalMinutes = (hours - 8) * 60 + minutes;
-    return (totalMinutes / 30) * 60;
+    const totalMinutes = (hours - WORK_START_HOUR) * 60 + minutes;
+    return (totalMinutes / 30) * 30; // Adjust multiplier to match grid size
   };
 
   const getTaskHeight = (startTime: string, endTime: string) => {
@@ -549,54 +540,86 @@ const TeamFlow = () => {
   };
 
   const renderTimelineView = () => {
-    const dayTasks = getTasksForDate(currentDate, selectedEmployee === 'all' ? null : selectedEmployee);
+    const dates = viewMode === 'week' ? getWeekDates(currentDate) : [currentDate];
+    const employeesToShow = selectedEmployee === 'all' 
+      ? employees 
+      : employees.filter(e => e.id === selectedEmployee);
+
+    const handleTimeSlotClick = (date: Date, time: string, employeeId: string) => {
+      const formattedDate = formatDate(date);
+      setTaskForm({
+        ...taskForm,
+        date: formattedDate,
+        startTime: time,
+        endTime: calculateEndTime(time, 60),
+        employeeIds: [employeeId]
+      });
+      setShowTaskModal(true);
+    };
 
     return (
-      <div>
-        <div className="grid grid-cols-4 gap-4 text-center mb-4">
-          <div className="text-sm font-medium text-gray-500">Время</div>
-          {employees.map(employee => (
-            <div key={employee.id} className="text-sm font-medium text-gray-500">
-              {employee.name}
-            </div>
-          ))}
-        </div>
-
-        <div className="divide-y divide-gray-200">
-          {[...Array(24)].map((_, hour) => {
-            const timeLabel = `${hour.toString().padStart(2, '0')}:00`;
-
-            return (
-              <div key={hour} className="grid grid-cols-4 gap-4 py-2">
-                <div className="text-sm text-gray-500">{timeLabel}</div>
-                {employees.map(employee => {
-                  const employeeTask = dayTasks.find(task => 
-                    task.employeeIds.includes(employee.id) && 
-                    task.startTime.startsWith(hour.toString().padStart(2, '0'))
-                  );
-
-                  return (
-                    <div key={employee.id} className="relative">
-                      {employeeTask ? (
-                        <div
-                          className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm cursor-pointer"
-                          style={{
-                            gridColumn: `span ${getTaskHeight(employeeTask.startTime, employeeTask.endTime)}`,
-                            gridRow: `${getTaskPosition(employeeTask.startTime)} / span ${getTaskHeight(employeeTask.startTime, employeeTask.endTime)}`
-                          }}
-                          onClick={() => openTaskModal(employeeTask)}
-                        >
-                          {employeeTask.title}
-                        </div>
-                      ) : (
-                        <div className="h-10" />
-                      )}
-                    </div>
-                  );
-                })}
+      <div className="bg-white rounded-xl shadow-lg p-4 overflow-x-auto">
+        <div className="flex gap-2">
+          <div className="w-20 flex-shrink-0">
+            <div className="h-24"></div>
+            {HOUR_SLOTS.map(time => (
+              <div key={time} className="h-[60px] flex items-start justify-end pr-2 text-xs text-gray-500">
+                {time}
               </div>
-            );
-          })}
+            ))}
+          </div>
+
+          {dates.map(date => (
+            <React.Fragment key={formatDate(date)}>
+              {employeesToShow.map(employee => {
+                const efficiency = getEmployeeEfficiency(employee.id);
+                const dateTasks = getTasksForDate(date, employee.id);
+
+                return (
+                  <div key={`${formatDate(date)}-${employee.id}`} className="flex-1 min-w-[200px]">
+                    <div className="h-24 border-b-2 pb-2 mb-2">
+                      {/* Employee header - keep existing code */}
+                    </div>
+
+                    <div className="relative border-l border-gray-200">
+                      {HOUR_SLOTS.map((time, idx) => (
+                        <div
+                          key={time}
+                          onClick={() => handleTimeSlotClick(date, time, employee.id)}
+                          className="h-[60px] border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                        ></div>
+                      ))}
+                      
+                      {dateTasks.map(task => {
+                        const top = getTaskPosition(task.startTime);
+                        const height = getTaskHeight(task.startTime, task.endTime);
+                        
+                        return (
+                          <div
+                            key={task.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTaskModal(task);
+                            }}
+                            className="absolute left-1 right-1 rounded-lg p-2 cursor-pointer hover:opacity-90 transition-opacity"
+                            style={{
+                              top: `${top}px`,
+                              height: `${height}px`,
+                              backgroundColor: PRIORITY_COLORS[task.priority].bg,
+                              borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
+                              opacity: task.completed ? 0.5 : 1
+                            }}
+                          >
+                            {/* Task content - keep existing code */}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          ))}
         </div>
       </div>
     );
