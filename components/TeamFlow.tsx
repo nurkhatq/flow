@@ -169,7 +169,10 @@ const TeamFlow = () => {
   };
 
   const addTask = async () => {
-    if (!taskForm.title.trim() || taskForm.employeeIds.length === 0) return;
+    if (!taskForm.title.trim() || taskForm.employeeIds.length === 0) {
+      alert('Пожалуйста, заполните название задачи и выберите хотя бы одного сотрудника');
+      return;
+    }
     
     const taskData = {
       id: editingTask ? editingTask.id : Date.now().toString(),
@@ -191,7 +194,13 @@ const TeamFlow = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(taskData)
         });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const savedTask = await response.json();
+        console.log('Task saved:', savedTask);
         setTasks(prevTasks => [...prevTasks, savedTask]);
 
         // Create notifications
@@ -222,8 +231,12 @@ const TeamFlow = () => {
       setShowTaskModal(false);
       setEditingTask(null);
       resetTaskForm();
+      
+      // Refresh tasks from server
+      await fetchTasks();
     } catch (error) {
       console.error('Error adding task:', error);
+      alert('Ошибка при создании задачи. Проверьте консоль для деталей.');
     }
   };
 
@@ -937,7 +950,9 @@ const TeamFlow = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteEmployee(emp.id);
+                      if (window.confirm(`Вы уверены, что хотите удалить сотрудника ${emp.name}?`)) {
+                        deleteEmployee(emp.id);
+                      }
                     }}
                     className="ml-1 p-1 hover:bg-black hover:bg-opacity-20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                   >
