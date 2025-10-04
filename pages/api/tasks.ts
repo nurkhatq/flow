@@ -50,6 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             t.priority,
             t.description,
             t.completed,
+            t.status,
             t.created_by,
             t.created_at,
             COALESCE(
@@ -74,12 +75,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const tasks = result.rows.map(row => ({
           id: row.id,
           title: row.title,
-          date: formatDate(row.date), // ← ФОРМАТИРУЕМ ДАТУ
-          startTime: formatTime(row.start_time), // ← ФОРМАТИРУЕМ ВРЕМЯ
-          endTime: formatTime(row.end_time), // ← ФОРМАТИРУЕМ ВРЕМЯ
+          date: formatDate(row.date),
+          startTime: formatTime(row.start_time),
+          endTime: formatTime(row.end_time),
           priority: row.priority,
           description: row.description,
           completed: row.completed,
+          status: row.status || 'pending',
           createdBy: row.created_by,
           createdAt: row.created_at,
           employees: row.employees,
@@ -87,13 +89,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }));
 
         console.log(`Found ${tasks.length} tasks`);
-        console.log('Sample task:', tasks[0]); // Для отладки
         res.status(200).json(tasks);
         break;
 
       case 'POST':
         console.log('Creating task:', req.body);
-        const { id, title, date, startTime, endTime, priority, description, completed, createdBy, employeeIds } = req.body;
+        const { id, title, date, startTime, endTime, priority, description, completed, status, createdBy, employeeIds } = req.body;
         
         if (!title || !title.trim() || !employeeIds || employeeIds.length === 0) {
           return res.status(400).json({ error: 'Title and at least one employee are required' });
@@ -102,9 +103,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await pool.query('BEGIN');
         
         const taskResult = await pool.query(
-          `INSERT INTO tasks (id, title, date, start_time, end_time, priority, description, completed, created_by) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-          [id, title.trim(), date, startTime, endTime, priority, description || '', completed || false, createdBy]
+          `INSERT INTO tasks (id, title, date, start_time, end_time, priority, description, completed, status, created_by) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+          [id, title.trim(), date, startTime, endTime, priority, description || '', completed || false, status || 'pending', createdBy]
         );
 
         for (const employeeId of employeeIds) {
@@ -127,6 +128,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             t.priority,
             t.description,
             t.completed,
+            t.status,
             t.created_by,
             COALESCE(
               json_agg(
@@ -150,12 +152,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const newTask = {
           id: fullTaskResult.rows[0].id,
           title: fullTaskResult.rows[0].title,
-          date: formatDate(fullTaskResult.rows[0].date), // ← ФОРМАТИРУЕМ
-          startTime: formatTime(fullTaskResult.rows[0].start_time), // ← ФОРМАТИРУЕМ
-          endTime: formatTime(fullTaskResult.rows[0].end_time), // ← ФОРМАТИРУЕМ
+          date: formatDate(fullTaskResult.rows[0].date),
+          startTime: formatTime(fullTaskResult.rows[0].start_time),
+          endTime: formatTime(fullTaskResult.rows[0].end_time),
           priority: fullTaskResult.rows[0].priority,
           description: fullTaskResult.rows[0].description,
           completed: fullTaskResult.rows[0].completed,
+          status: fullTaskResult.rows[0].status || 'pending',
           createdBy: fullTaskResult.rows[0].created_by,
           employees: fullTaskResult.rows[0].employees,
           employeeIds: fullTaskResult.rows[0].employees.map((emp: any) => emp.id)
@@ -169,23 +172,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log('Updating task:', req.body);
         const { id: updateId, title: updateTitle, date: updateDate, startTime: updateStartTime, 
                 endTime: updateEndTime, priority: updatePriority, description: updateDescription, 
-                completed: updateCompleted, employeeIds: updateEmployeeIds } = req.body;
+                completed: updateCompleted, status: updateStatus, employeeIds: updateEmployeeIds } = req.body;
         
         await pool.query('BEGIN');
 
         await pool.query(
           `UPDATE tasks SET title = $1, date = $2, start_time = $3, end_time = $4, 
-           priority = $5, description = $6, completed = $7 WHERE id = $8`,
+           priority = $5, description = $6, completed = $7, status = $8 WHERE id = $9`,
           [updateTitle, updateDate, updateStartTime, updateEndTime, updatePriority, 
-           updateDescription, updateCompleted, updateId]
+           updateDescription, updateCompleted, updateStatus || 'pending', updateId]
         );
 
-        await pool.query('DELETE FROM task_assignments WHERE task_id = $1', [updateId]);
-        for (const employeeId of updateEmployeeIds) {
-          await pool.query(
-            'INSERT INTO task_assignments (task_id, employee_id) VALUES ($1, $2)',
-            [updateId, employeeId]
-          );
+        if (updateEmployeeIds) {
+          await pool.query('DELETE FROM task_assignments WHERE task_id = $1', [updateId]);
+          for (const employeeId of updateEmployeeIds) {
+            await pool.query(
+              'INSERT INTO task_assignments (task_id, employee_id) VALUES ($1, $2)',
+              [updateId, employeeId]
+            );
+          }
         }
 
         await pool.query('COMMIT');

@@ -7,16 +7,18 @@ import {
   Notification, 
   TaskFormData, 
   TemplateFormData,
+  TaskStatus,
   PRIORITY_COLORS,
   COLORS,
-  DURATION_PRESETS 
+  DURATION_PRESETS,
+  TASK_STATUSES
 } from '../types';
 
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 22;
-const CELL_HEIGHT = 80;
+const CELL_HEIGHT = 120; // Увеличено для лучшей видимости
 
 const HOUR_SLOTS = Array.from(
   { length: WORK_END_HOUR - WORK_START_HOUR },
@@ -47,7 +49,8 @@ const TeamFlow = () => {
     endTime: '10:00',
     priority: 'medium',
     description: '',
-    completed: false
+    completed: false,
+    status: 'pending'
   });
   const [employeeForm, setEmployeeForm] = useState({
     name: '',
@@ -300,11 +303,44 @@ const TeamFlow = () => {
       endTime: '10:00',
       priority: 'medium',
       description: '',
-      completed: false
+      completed: false,
+      status: 'pending'
     });
   };
 
-  // Продолжение с resetTaskForm...
+  // Быстрое изменение статуса задачи
+  const toggleTaskStatus = async (e: MouseEvent, task: Task) => {
+    e.stopPropagation();
+    
+    const statusOrder: TaskStatus[] = ['pending', 'in_progress', 'completed'];
+    const currentIndex = statusOrder.indexOf(task.status || 'pending');
+    const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
+    
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...task,
+          status: nextStatus,
+          completed: nextStatus === 'completed'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      setTasks(tasks.map(t => 
+        t.id === task.id 
+          ? { ...t, status: nextStatus, completed: nextStatus === 'completed' }
+          : t
+      ));
+    } catch (error) {
+      console.error('Error updating task status:', error);
+      alert('Ошибка при обновлении статуса');
+    }
+  };
 
   const openTaskModal = (task: Task | null = null, date?: Date, startTime?: string, employeeId?: string) => {
     if (task) {
@@ -581,7 +617,6 @@ const TeamFlow = () => {
     );
   };
 
-  // УЛУЧШЕННЫЙ МЕСЯЦ ВИД
   const renderMonthView = () => {
     const monthDates = getMonthDates(currentDate);
     const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -676,7 +711,6 @@ const TeamFlow = () => {
     );
   };
 
-  // УЛУЧШЕННЫЙ НЕДЕЛЯ ВИД
   const renderWeekView = () => {
     const weekDates = getWeekDates(currentDate);
     const employeesToShow = selectedEmployee === 'all' 
@@ -686,7 +720,6 @@ const TeamFlow = () => {
     return (
       <div className="bg-white rounded-xl shadow-lg p-4 overflow-x-auto">
         <div className="min-w-[800px]">
-          {/* Header с днями */}
           <div className="grid grid-cols-8 gap-2 mb-4">
             <div className="font-semibold text-gray-700">Сотрудник</div>
             {weekDates.map((date, idx) => {
@@ -705,7 +738,6 @@ const TeamFlow = () => {
             })}
           </div>
 
-          {/* Строки сотрудников */}
           {employeesToShow.map(employee => (
             <div key={employee.id} className="grid grid-cols-8 gap-2 mb-3">
               <div className="flex items-center gap-2 py-2">
@@ -781,7 +813,6 @@ const TeamFlow = () => {
     );
   };
 
-  // ДЕНЬ ВИД (таймлайн)
   const renderDayView = () => {
     const employeesToShow = selectedEmployee === 'all' 
       ? employees 
@@ -860,29 +891,59 @@ const TeamFlow = () => {
                   />
                 ))}
                 
-                {getTasksForDate(currentDate, employee.id).map(task => (
-                  <div
-                    key={task.id}
-                    onClick={() => openTaskModal(task)}
-                    style={{
-                      position: 'absolute',
-                      top: `${getTaskPosition(task.startTime)}px`,
-                      height: `${getTaskHeight(task.startTime, task.endTime)}px`,
-                      left: '4px',
-                      right: '4px',
-                      backgroundColor: PRIORITY_COLORS[task.priority].color + '20',
-                      borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
-                      opacity: task.completed ? 0.6 : 1
-                    }}
-                    className="rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all overflow-hidden"
-                  >
-                    <div className="text-sm font-medium line-clamp-2">{task.title}</div>
-                    <div className="text-xs text-gray-600 mt-1">{task.startTime} - {task.endTime}</div>
-                    {task.description && (
-                      <div className="text-xs text-gray-500 mt-1 line-clamp-2">{task.description}</div>
-                    )}
-                  </div>
-                ))}
+                {getTasksForDate(currentDate, employee.id).map(task => {
+                  const taskHeight = getTaskHeight(task.startTime, task.endTime);
+                  const isSmallTask = taskHeight < 60;
+                  const status = task.status || 'pending';
+                  
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => openTaskModal(task)}
+                      style={{
+                        position: 'absolute',
+                        top: `${getTaskPosition(task.startTime)}px`,
+                        height: `${taskHeight}px`,
+                        left: '4px',
+                        right: '4px',
+                        backgroundColor: PRIORITY_COLORS[task.priority].color + '20',
+                        borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
+                        opacity: task.completed ? 0.6 : 1
+                      }}
+                      className="rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all overflow-hidden group"
+                    >
+                      <div 
+                        onClick={(e) => toggleTaskStatus(e, task)}
+                        className={`absolute top-1 right-1 w-6 h-6 ${TASK_STATUSES[status].bg} rounded-full flex items-center justify-center text-xs cursor-pointer hover:scale-110 transition-transform z-10`}
+                        title={`${TASK_STATUSES[status].label} - кликните для изменения`}
+                      >
+                        {TASK_STATUSES[status].icon}
+                      </div>
+
+                      {isSmallTask ? (
+                        <div className="flex items-center gap-2 h-full">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate">{task.title}</div>
+                          </div>
+                          <div className="text-xs text-gray-600 whitespace-nowrap">
+                            {task.startTime}-{task.endTime}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-sm font-medium line-clamp-2 pr-7">{task.title}</div>
+                          <div className="text-xs text-gray-600 mt-1">{task.startTime} - {task.endTime}</div>
+                          {task.description && (
+                            <div className="text-xs text-gray-500 mt-1 line-clamp-2">{task.description}</div>
+                          )}
+                          <div className={`text-xs ${TASK_STATUSES[status].text} mt-1 font-medium`}>
+                            {TASK_STATUSES[status].label}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -890,8 +951,6 @@ const TeamFlow = () => {
       </div>
     );
   };
-
-  // Продолжение - начальные экраны и основной JSX
 
   if (!currentUser && employees.length === 0) {
     return (
@@ -1000,7 +1059,6 @@ const TeamFlow = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      {/* Header */}
       <div className="bg-white shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
@@ -1166,14 +1224,12 @@ const TeamFlow = () => {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-6">
         {viewMode === 'month' && renderMonthView()}
         {viewMode === 'week' && renderWeekView()}
         {viewMode === 'day' && renderDayView()}
       </div>
 
-      {/* Task Modal */}
       {showTaskModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1289,6 +1345,37 @@ const TeamFlow = () => {
               </div>
 
               <div>
+                <label className="block text-sm font-medium mb-2">Статус</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(Object.keys(TASK_STATUSES) as TaskStatus[]).map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => setTaskForm({ 
+                        ...taskForm, 
+                        status,
+                        completed: status === 'completed'
+                      })}
+                      className={`p-3 rounded-lg border-2 transition-all ${
+                        (taskForm.status || 'pending') === status
+                          ? TASK_STATUSES[status].bg + ' border-current'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-2xl mb-1">{TASK_STATUSES[status].icon}</div>
+                      <div className={`font-medium text-xs ${
+                        (taskForm.status || 'pending') === status 
+                          ? TASK_STATUSES[status].text 
+                          : 'text-gray-600'
+                      }`}>
+                        {TASK_STATUSES[status].label}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium mb-2">Описание</label>
                 <textarea
                   value={taskForm.description}
@@ -1316,17 +1403,6 @@ const TeamFlow = () => {
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {editingTask && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={taskForm.completed}
-                      onChange={(e) => setTaskForm({ ...taskForm, completed: e.target.checked })}
-                      className="w-4 h-4"
-                    />
-                    <span className="text-sm">Выполнено</span>
-                  </label>
-                )}
                 <button
                   onClick={() => {
                     setShowTaskModal(false);
@@ -1348,7 +1424,6 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Notifications Modal */}
       {showNotifications && (
         <div className="fixed right-4 top-20 w-96 bg-white rounded-xl shadow-2xl max-h-[600px] overflow-y-auto z-50">
           <div className="p-4 border-b">
@@ -1399,7 +1474,6 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Employee Modal */}
       {showEmployeeModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
@@ -1444,7 +1518,6 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Template List Modal */}
       {showTemplateListModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1500,7 +1573,6 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Template Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
