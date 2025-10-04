@@ -1,5 +1,5 @@
 import React, { useState, useEffect, MouseEvent } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, X, Bell, Users, LogOut, Bookmark, TrendingUp, Copy, Edit2, Trash2, Clock } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, X, Bell, Users, LogOut, Bookmark, TrendingUp } from 'lucide-react';
 import { 
   Employee, 
   Task, 
@@ -16,9 +16,8 @@ type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 22;
-const CELL_HEIGHT = 80; // Height for 1 hour cell in pixels
+const CELL_HEIGHT = 80;
 
-// Generate hourly slots (default view)
 const HOUR_SLOTS = Array.from(
   { length: WORK_END_HOUR - WORK_START_HOUR },
   (_, i) => `${(i + WORK_START_HOUR).toString().padStart(2, '0')}:00`
@@ -30,7 +29,7 @@ const TeamFlow = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week');
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -85,8 +84,10 @@ const TeamFlow = () => {
 
   const fetchTasks = async () => {
     try {
+      console.log('Fetching tasks...');
       const response = await fetch('/api/tasks');
       const data = await response.json();
+      console.log('Tasks received:', data);
       setTasks(data);
     } catch (error) {
       console.error('Error fetching tasks:', error);
@@ -126,7 +127,10 @@ const TeamFlow = () => {
   };
 
   const addEmployee = async () => {
-    if (!employeeForm.name.trim()) return;
+    if (!employeeForm.name.trim()) {
+      alert('Пожалуйста, введите имя сотрудника');
+      return;
+    }
     
     const newEmployee = {
       id: Date.now().toString(),
@@ -137,12 +141,19 @@ const TeamFlow = () => {
     };
     
     try {
+      console.log('Creating employee:', newEmployee);
       const response = await fetch('/api/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEmployee)
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const savedEmployee = await response.json();
+      console.log('Employee created:', savedEmployee);
       
       setEmployees([...employees, savedEmployee]);
       setEmployeeForm({ name: '', position: '' });
@@ -153,6 +164,7 @@ const TeamFlow = () => {
       }
     } catch (error) {
       console.error('Error adding employee:', error);
+      alert('Ошибка при создании сотрудника: ' + error);
     }
   };
 
@@ -169,8 +181,21 @@ const TeamFlow = () => {
   };
 
   const addTask = async () => {
-    if (!taskForm.title.trim() || taskForm.employeeIds.length === 0) {
-      alert('Пожалуйста, заполните название задачи и выберите хотя бы одного сотрудника');
+    console.log('=== CREATING TASK DEBUG ===');
+    console.log('Task form data:', taskForm);
+    
+    if (!taskForm.title.trim()) {
+      alert('Пожалуйста, введите название задачи');
+      return;
+    }
+    
+    if (taskForm.employeeIds.length === 0) {
+      alert('Пожалуйста, выберите хотя бы одного сотрудника');
+      return;
+    }
+    
+    if (!taskForm.date) {
+      alert('Пожалуйста, выберите дату');
       return;
     }
     
@@ -180,28 +205,51 @@ const TeamFlow = () => {
       createdBy: currentUser?.id
     };
     
+    console.log('Task data to send:', taskData);
+    
     try {
       if (editingTask) {
-        await fetch('/api/tasks', {
+        console.log('Updating existing task...');
+        const response = await fetch('/api/tasks', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(taskData)
         });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
         setTasks(tasks.map(t => t.id === editingTask.id ? taskData : t));
+        console.log('Task updated successfully');
       } else {
+        console.log('Creating new task...');
+        console.log('Sending POST to /api/tasks');
+        
         const response = await fetch('/api/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(taskData)
         });
         
+        console.log('Response status:', response.status);
+        console.log('Response OK:', response.ok);
+        
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorText = await response.text();
+          console.error('Error response:', errorText);
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
         const savedTask = await response.json();
-        console.log('Task saved:', savedTask);
-        setTasks(prevTasks => [...prevTasks, savedTask]);
+        console.log('Task created successfully:', savedTask);
+        
+        setTasks(prevTasks => {
+          const newTasks = [...prevTasks, savedTask];
+          console.log('Updated tasks array:', newTasks);
+          return newTasks;
+        });
 
         // Create notifications
         const newNotifications = taskForm.employeeIds
@@ -232,11 +280,14 @@ const TeamFlow = () => {
       setEditingTask(null);
       resetTaskForm();
       
-      // Refresh tasks from server
+      // Refresh tasks
+      console.log('Refreshing tasks from server...');
       await fetchTasks();
+      console.log('=== TASK CREATION COMPLETE ===');
     } catch (error) {
-      console.error('Error adding task:', error);
-      alert('Ошибка при создании задачи. Проверьте консоль для деталей.');
+      console.error('=== ERROR CREATING TASK ===');
+      console.error('Error details:', error);
+      alert('Ошибка при создании задачи:\n' + error + '\n\nПроверьте консоль (F12) для деталей.');
     }
   };
 
@@ -252,6 +303,8 @@ const TeamFlow = () => {
       completed: false
     });
   };
+
+  // Продолжение с resetTaskForm...
 
   const openTaskModal = (task: Task | null = null, date?: Date, startTime?: string, employeeId?: string) => {
     if (task) {
@@ -273,15 +326,17 @@ const TeamFlow = () => {
   };
 
   const deleteTask = async () => {
-    if (editingTask) {
-      try {
-        await fetch(`/api/tasks?id=${editingTask.id}`, { method: 'DELETE' });
-        setTasks(tasks.filter(t => t.id !== editingTask.id));
-        setShowTaskModal(false);
-        setEditingTask(null);
-      } catch (error) {
-        console.error('Error deleting task:', error);
-      }
+    if (!editingTask) return;
+    
+    try {
+      await fetch(`/api/tasks?id=${editingTask.id}`, { method: 'DELETE' });
+      setTasks(tasks.filter(t => t.id !== editingTask.id));
+      setShowTaskModal(false);
+      setEditingTask(null);
+      await fetchTasks();
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      alert('Ошибка при удалении задачи');
     }
   };
 
@@ -290,14 +345,17 @@ const TeamFlow = () => {
     const totalMinutes = hours * 60 + minutes + duration;
     const endHours = Math.floor(totalMinutes / 60);
     const endMinutes = totalMinutes % 60;
-    if (endHours > WORK_END_HOUR) {
+    if (endHours >= WORK_END_HOUR) {
       return `${WORK_END_HOUR}:00`;
     }
     return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
   };
 
   const addTemplate = async () => {
-    if (!templateForm.title.trim()) return;
+    if (!templateForm.title.trim()) {
+      alert('Пожалуйста, введите название шаблона');
+      return;
+    }
     
     const templateData = {
       id: editingTemplate ? editingTemplate.id : Date.now().toString(),
@@ -314,6 +372,10 @@ const TeamFlow = () => {
         body: JSON.stringify(templateData)
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const savedTemplate = await response.json();
       
       if (editingTemplate) {
@@ -327,6 +389,7 @@ const TeamFlow = () => {
       setTemplateForm({ title: '', description: '', duration: 60, priority: 'medium' });
     } catch (error) {
       console.error('Error adding template:', error);
+      alert('Ошибка при создании шаблона');
     }
   };
 
@@ -518,65 +581,208 @@ const TeamFlow = () => {
     );
   };
 
+  // УЛУЧШЕННЫЙ МЕСЯЦ ВИД
   const renderMonthView = () => {
     const monthDates = getMonthDates(currentDate);
-    const startOfWeek = monthDates[0];
-    const endOfWeek = monthDates[monthDates.length - 1];
+    const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-    const monthTasks = tasks.filter(task => {
-      const taskDate = new Date(task.date);
-      return taskDate >= startOfWeek && taskDate <= endOfWeek;
-    });
+    const getTaskCountColor = (count: number) => {
+      if (count === 0) return 'bg-gray-50';
+      if (count <= 2) return 'bg-green-100 border-green-300';
+      if (count <= 5) return 'bg-yellow-100 border-yellow-300';
+      return 'bg-red-100 border-red-300';
+    };
 
     return (
-      <div>
-        <div className="grid grid-cols-7 gap-4 text-center mb-4">
-          {['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'].map((day, index) => (
-            <div key={index} className="text-sm font-medium text-gray-500">
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="grid grid-cols-7 gap-2 mb-4">
+          {weekDays.map((day, index) => (
+            <div key={index} className="text-center font-semibold text-gray-700 py-2">
               {day}
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-4">
+        <div className="grid grid-cols-7 gap-2">
           {monthDates.map((date, index) => {
             const isToday = formatDate(date) === formatDate(new Date());
-            const isSelected = formatDate(date) === taskForm.date;
-            const dayTasks = monthTasks.filter(task => task.date === formatDate(date));
+            const dayTasks = getTasksForDate(date);
+            const taskCount = dayTasks.length;
+            const isCurrentMonth = date.getMonth() === currentDate.getMonth();
 
             return (
               <div
                 key={index}
-                onClick={() => setTaskForm({ ...taskForm, date: formatDate(date) })}
-                className={`p-4 rounded-lg cursor-pointer transition-all ${
-                  isToday ? 'bg-blue-100' : ''
-                } ${isSelected ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
+                onClick={() => openTaskModal(null, date)}
+                className={`min-h-[100px] p-3 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md ${
+                  getTaskCountColor(taskCount)
+                } ${
+                  isToday ? 'ring-2 ring-blue-500' : 'border-gray-200'
+                } ${
+                  !isCurrentMonth ? 'opacity-40' : ''
+                }`}
               >
-                <div className="text-sm font-semibold">
+                <div className={`text-sm font-semibold mb-2 ${
+                  isToday ? 'text-blue-600' : 'text-gray-700'
+                }`}>
                   {date.getDate()}
                 </div>
-                {dayTasks.length > 0 && (
-                  <div className="mt-2">
-                    {dayTasks.map(task => (
+                
+                {taskCount > 0 && (
+                  <div className="space-y-1">
+                    {dayTasks.slice(0, 3).map(task => (
                       <div
                         key={task.id}
-                        className="text-xs bg-blue-50 text-blue-600 rounded-full px-3 py-1 mr-2 mb-2 inline-block"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openTaskModal(task);
+                        }}
+                        className="text-xs p-1 rounded truncate"
+                        style={{
+                          backgroundColor: PRIORITY_COLORS[task.priority].color + '20',
+                          borderLeft: `3px solid ${PRIORITY_COLORS[task.priority].color}`
+                        }}
                       >
                         {task.title}
                       </div>
                     ))}
+                    {taskCount > 3 && (
+                      <div className="text-xs text-gray-500 font-medium">
+                        +{taskCount - 3} еще
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
         </div>
+
+        <div className="mt-6 flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-green-100 border-2 border-green-300"></div>
+            <span>1-2 задачи</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-yellow-100 border-2 border-yellow-300"></div>
+            <span>3-5 задач</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-red-100 border-2 border-red-300"></div>
+            <span>6+ задач</span>
+          </div>
+        </div>
       </div>
     );
   };
 
-  const renderTimelineView = () => {
-    const dates = viewMode === 'week' ? getWeekDates(currentDate) : [currentDate];
+  // УЛУЧШЕННЫЙ НЕДЕЛЯ ВИД
+  const renderWeekView = () => {
+    const weekDates = getWeekDates(currentDate);
+    const employeesToShow = selectedEmployee === 'all' 
+      ? employees 
+      : employees.filter(e => e.id === selectedEmployee);
+
+    return (
+      <div className="bg-white rounded-xl shadow-lg p-4 overflow-x-auto">
+        <div className="min-w-[800px]">
+          {/* Header с днями */}
+          <div className="grid grid-cols-8 gap-2 mb-4">
+            <div className="font-semibold text-gray-700">Сотрудник</div>
+            {weekDates.map((date, idx) => {
+              const isToday = formatDate(date) === formatDate(new Date());
+              return (
+                <div
+                  key={idx}
+                  className={`text-center p-2 rounded-lg ${
+                    isToday ? 'bg-blue-100 font-semibold text-blue-700' : 'text-gray-600'
+                  }`}
+                >
+                  <div className="text-xs">{['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][date.getDay() === 0 ? 6 : date.getDay() - 1]}</div>
+                  <div className="font-semibold">{date.getDate()}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Строки сотрудников */}
+          {employeesToShow.map(employee => (
+            <div key={employee.id} className="grid grid-cols-8 gap-2 mb-3">
+              <div className="flex items-center gap-2 py-2">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                  style={{ backgroundColor: employee.color }}
+                >
+                  {employee.avatar}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-medium text-sm truncate">{employee.name}</div>
+                  <div className="text-xs text-gray-500 truncate">{employee.position}</div>
+                </div>
+              </div>
+
+              {weekDates.map((date, idx) => {
+                const dayTasks = getTasksForDate(date, employee.id);
+                const totalDuration = dayTasks.reduce((acc, task) => {
+                  const [startH, startM] = task.startTime.split(':').map(Number);
+                  const [endH, endM] = task.endTime.split(':').map(Number);
+                  return acc + ((endH * 60 + endM) - (startH * 60 + startM));
+                }, 0);
+                const hours = Math.floor(totalDuration / 60);
+                const minutes = totalDuration % 60;
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => openTaskModal(null, date, '09:00', employee.id)}
+                    className={`min-h-[80px] p-2 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md ${
+                      dayTasks.length === 0 ? 'bg-gray-50 border-gray-200' :
+                      dayTasks.length <= 2 ? 'bg-green-50 border-green-300' :
+                      dayTasks.length <= 4 ? 'bg-yellow-50 border-yellow-300' :
+                      'bg-red-50 border-red-300'
+                    }`}
+                  >
+                    {dayTasks.length > 0 && (
+                      <>
+                        <div className="text-xs font-semibold text-gray-700 mb-1">
+                          {dayTasks.length} {dayTasks.length === 1 ? 'задача' : 'задачи'}
+                        </div>
+                        <div className="text-xs text-gray-500 mb-2">
+                          {hours > 0 && `${hours}ч `}{minutes > 0 && `${minutes}м`}
+                        </div>
+                        {dayTasks.slice(0, 2).map(task => (
+                          <div
+                            key={task.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTaskModal(task);
+                            }}
+                            className="text-xs p-1 mb-1 rounded truncate"
+                            style={{
+                              backgroundColor: PRIORITY_COLORS[task.priority].color + '20',
+                              borderLeft: `2px solid ${PRIORITY_COLORS[task.priority].color}`
+                            }}
+                          >
+                            {task.title}
+                          </div>
+                        ))}
+                        {dayTasks.length > 2 && (
+                          <div className="text-xs text-gray-500">+{dayTasks.length - 2}</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ДЕНЬ ВИД (таймлайн)
+  const renderDayView = () => {
     const employeesToShow = selectedEmployee === 'all' 
       ? employees 
       : employees.filter(e => e.id === selectedEmployee);
@@ -612,14 +818,7 @@ const TeamFlow = () => {
       
       const endTime = calculateEndTime(startTime, 60);
 
-      setTaskForm({
-        ...taskForm,
-        date: formattedDate,
-        startTime,
-        endTime,
-        employeeIds: [employeeId]
-      });
-      setShowTaskModal(true);
+      openTaskModal(null, date, startTime, employeeId);
     };
 
     return (
@@ -628,7 +827,7 @@ const TeamFlow = () => {
           <div className="w-20 flex-shrink-0">
             <div className="h-24"></div>
             {HOUR_SLOTS.map(time => (
-              <div key={time} style={{ height: `${CELL_HEIGHT}px` }} className="flex items-start justify-end pr-2 text-xs text-gray-500">
+              <div key={time} style={{ height: `${CELL_HEIGHT}px` }} className="flex items-start justify-end pr-2 text-xs text-gray-500 border-b border-gray-100">
                 {time}
               </div>
             ))}
@@ -636,8 +835,8 @@ const TeamFlow = () => {
 
           {employeesToShow.map(employee => (
             <div key={employee.id} className="flex-1 min-w-[250px] border-l border-gray-200">
-              <div className="h-24 pb-2 mb-2">
-                <div className="flex items-center gap-2 p-2">
+              <div className="h-24 pb-2 mb-2 px-2">
+                <div className="flex items-center gap-2">
                   <div
                     className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
                     style={{ backgroundColor: employee.color }}
@@ -675,12 +874,12 @@ const TeamFlow = () => {
                       borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
                       opacity: task.completed ? 0.6 : 1
                     }}
-                    className="rounded-lg p-3 cursor-pointer hover:opacity-90 transition-all overflow-y-auto"
+                    className="rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all overflow-hidden"
                   >
-                    <div className="text-sm font-medium">{task.title}</div>
-                    <div className="text-xs text-gray-600">{task.startTime} - {task.endTime}</div>
+                    <div className="text-sm font-medium line-clamp-2">{task.title}</div>
+                    <div className="text-xs text-gray-600 mt-1">{task.startTime} - {task.endTime}</div>
                     {task.description && (
-                      <div className="text-xs text-gray-500 mt-1">{task.description}</div>
+                      <div className="text-xs text-gray-500 mt-1 line-clamp-2">{task.description}</div>
                     )}
                   </div>
                 ))}
@@ -692,6 +891,8 @@ const TeamFlow = () => {
     );
   };
 
+  // Продолжение - начальные экраны и основной JSX
+
   if (!currentUser && employees.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
@@ -701,7 +902,7 @@ const TeamFlow = () => {
               <Calendar className="w-12 h-12 text-blue-600" />
               <h1 className="text-5xl font-bold text-gray-800">TeamFlow</h1>
             </div>
-            <p className="text-xl text-gray-600">Выберите свой профиль или создайте новый</p>
+            <p className="text-xl text-gray-600">Создайте первого сотрудника для начала работы</p>
           </div>
           
           <div className="text-center">
@@ -710,7 +911,7 @@ const TeamFlow = () => {
               className="px-8 py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-semibold text-lg shadow-lg"
             >
               <Plus className="w-5 h-5 inline mr-2" />
-              Создать нового сотрудника
+              Создать сотрудника
             </button>
           </div>
         </div>
@@ -752,7 +953,7 @@ const TeamFlow = () => {
                   onClick={addEmployee}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Добавить сотрудника
+                  Создать
                 </button>
               </div>
             </div>
@@ -967,7 +1168,9 @@ const TeamFlow = () => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {viewMode === 'month' ? renderMonthView() : renderTimelineView()}
+        {viewMode === 'month' && renderMonthView()}
+        {viewMode === 'week' && renderWeekView()}
+        {viewMode === 'day' && renderDayView()}
       </div>
 
       {/* Task Modal */}
@@ -1015,7 +1218,7 @@ const TeamFlow = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Время начала *</label>
+                  <label className="block text-sm font-medium mb-2">Начало *</label>
                   <input
                     type="time"
                     value={taskForm.startTime}
@@ -1028,7 +1231,7 @@ const TeamFlow = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Время конца *</label>
+                  <label className="block text-sm font-medium mb-2">Конец *</label>
                   <input
                     type="time"
                     value={taskForm.endTime}
@@ -1066,21 +1269,15 @@ const TeamFlow = () => {
                       onClick={() => setTaskForm({ ...taskForm, priority })}
                       className={`p-3 rounded-lg transition-all ${
                         taskForm.priority === priority
-                          ? `bg-opacity-100 shadow-inner ${PRIORITY_COLORS[priority].bg}`
-                          : 'bg-opacity-50 hover:bg-opacity-75'
+                          ? 'shadow-md'
+                          : 'opacity-70 hover:opacity-100'
                       }`}
                       style={{
-                        backgroundColor: taskForm.priority === priority 
-                          ? PRIORITY_COLORS[priority].color + '30'
-                          : PRIORITY_COLORS[priority].color + '10',
+                        backgroundColor: PRIORITY_COLORS[priority].color + '30',
                         borderLeft: `4px solid ${PRIORITY_COLORS[priority].color}`
                       }}
                     >
-                      <div className={`font-medium text-sm ${
-                        taskForm.priority === priority 
-                          ? PRIORITY_COLORS[priority].text
-                          : 'text-gray-600'
-                      }`}>
+                      <div className={`font-medium text-sm ${PRIORITY_COLORS[priority].text}`}>
                         {priority === 'low' && 'Низкий'}
                         {priority === 'medium' && 'Средний'}
                         {priority === 'high' && 'Высокий'}
@@ -1107,7 +1304,11 @@ const TeamFlow = () => {
               <div>
                 {editingTask && (
                   <button
-                    onClick={deleteTask}
+                    onClick={() => {
+                      if (window.confirm('Вы уверены, что хотите удалить эту задачу?')) {
+                        deleteTask();
+                      }
+                    }}
                     className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                   >
                     Удалить
@@ -1123,7 +1324,7 @@ const TeamFlow = () => {
                       onChange={(e) => setTaskForm({ ...taskForm, completed: e.target.checked })}
                       className="w-4 h-4"
                     />
-                    <span className="text-sm">Отметить как выполненную</span>
+                    <span className="text-sm">Выполнено</span>
                   </label>
                 )}
                 <button
@@ -1139,7 +1340,7 @@ const TeamFlow = () => {
                   onClick={addTask}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  {editingTask ? 'Сохранить' : 'Создать задачу'}
+                  {editingTask ? 'Сохранить' : 'Создать'}
                 </button>
               </div>
             </div>
@@ -1176,8 +1377,7 @@ const TeamFlow = () => {
                           hour: '2-digit',
                           minute: '2-digit',
                           day: 'numeric',
-                          month: 'short',
-                          year: 'numeric'
+                          month: 'short'
                         })}
                       </div>
                     </div>
@@ -1237,7 +1437,7 @@ const TeamFlow = () => {
                 onClick={addEmployee}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Добавить сотрудника
+                Создать
               </button>
             </div>
           </div>
@@ -1255,20 +1455,22 @@ const TeamFlow = () => {
                 Нет доступных шаблонов
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {templates.map(template => (
                   <div
                     key={template.id}
-                    className="p-4 border rounded-lg cursor-pointer transition-all hover:bg-gray-100"
+                    className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all"
                     onClick={() => useTemplate(template)}
                   >
-                    <div className="font-medium">{template.title}</div>
-                    <div className="text-sm text-gray-500">{template.description}</div>
-                    <div className="flex gap-2 mt-2">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${PRIORITY_COLORS[template.priority].bg}`}>
-                        {template.priority.charAt(0).toUpperCase() + template.priority.slice(1)}
+                    <div className="font-medium mb-1">{template.title}</div>
+                    {template.description && (
+                      <div className="text-sm text-gray-500 mb-2">{template.description}</div>
+                    )}
+                    <div className="flex gap-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${PRIORITY_COLORS[template.priority].bg} ${PRIORITY_COLORS[template.priority].text}`}>
+                        {template.priority}
                       </span>
-                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-600">
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
                         {template.duration} мин
                       </span>
                     </div>
@@ -1277,7 +1479,7 @@ const TeamFlow = () => {
               </div>
             )}
 
-            <div className="flex justify-end gap-3 mt-4">
+            <div className="flex justify-end gap-3 mt-6">
               <button
                 onClick={() => setShowTemplateListModal(false)}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
@@ -1291,7 +1493,7 @@ const TeamFlow = () => {
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Создать новый шаблон
+                Новый шаблон
               </button>
             </div>
           </div>
@@ -1307,13 +1509,13 @@ const TeamFlow = () => {
             </h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Название шаблона *</label>
+                <label className="block text-sm font-medium mb-2">Название *</label>
                 <input
                   type="text"
                   value={templateForm.title}
                   onChange={(e) => setTemplateForm({ ...templateForm, title: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Введите название шаблона"
+                  placeholder="Название шаблона"
                 />
               </div>
               <div>
@@ -1323,7 +1525,7 @@ const TeamFlow = () => {
                   onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })}
                   rows={3}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                  placeholder="Добавьте описание шаблона"
+                  placeholder="Описание шаблона"
                 />
               </div>
               <div>
@@ -1333,12 +1535,13 @@ const TeamFlow = () => {
                   value={templateForm.duration}
                   onChange={(e) => setTemplateForm({ ...templateForm, duration: Number(e.target.value) })}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="60"
+                  min="15"
+                  step="15"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Приоритет</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {Object.entries(PRIORITY_COLORS).map(([key, value]) => (
                     <button
                       key={key}
@@ -1368,7 +1571,13 @@ const TeamFlow = () => {
               <div>
                 {editingTemplate && (
                   <button
-                    onClick={(e) => deleteTemplate(e, editingTemplate.id)}
+                    onClick={(e) => {
+                      if (window.confirm('Вы уверены, что хотите удалить этот шаблон?')) {
+                        deleteTemplate(e, editingTemplate.id);
+                        setShowTemplateModal(false);
+                        setEditingTemplate(null);
+                      }
+                    }}
                     className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                   >
                     Удалить
@@ -1377,7 +1586,10 @@ const TeamFlow = () => {
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setShowTemplateModal(false)}
+                  onClick={() => {
+                    setShowTemplateModal(false);
+                    setEditingTemplate(null);
+                  }}
                   className="px-6 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Отмена
@@ -1386,7 +1598,7 @@ const TeamFlow = () => {
                   onClick={addTemplate}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  {editingTemplate ? 'Сохранить' : 'Создать шаблон'}
+                  {editingTemplate ? 'Сохранить' : 'Создать'}
                 </button>
               </div>
             </div>
