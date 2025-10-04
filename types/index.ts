@@ -54,7 +54,32 @@ export interface TaskFormData {
   priority: TaskPriority;
   description: string;
   completed: boolean;
+  status?: TaskStatus;
 }
+
+export const TASK_STATUSES = {
+  pending: { 
+    label: 'Ожидает', 
+    color: '#9CA3AF', 
+    bg: 'bg-gray-100', 
+    text: 'text-gray-700',
+    icon: '⏸️'
+  },
+  in_progress: { 
+    label: 'В работе', 
+    color: '#3B82F6', 
+    bg: 'bg-blue-100', 
+    text: 'text-blue-700',
+    icon: '▶️'
+  },
+  completed: { 
+    label: 'Выполнена', 
+    color: '#10B981', 
+    bg: 'bg-green-100', 
+    text: 'text-green-700',
+    icon: '✅'
+  }
+};
 
 export interface TemplateFormData {
   title: string;
