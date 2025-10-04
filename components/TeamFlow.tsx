@@ -247,11 +247,16 @@ const TeamFlow = () => {
     }
   };
 
+  // Обновим функцию calculateEndTime
   const calculateEndTime = (startTime: string, duration: number) => {
     const [hours, minutes] = startTime.split(':').map(Number);
     const totalMinutes = hours * 60 + minutes + duration;
     const endHours = Math.floor(totalMinutes / 60);
     const endMinutes = totalMinutes % 60;
+    // Проверяем, чтобы время не выходило за пределы рабочего дня
+    if (endHours > WORK_END_HOUR) {
+      return `${WORK_END_HOUR}:00`;
+    }
     return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
   };
 
@@ -543,14 +548,45 @@ const TeamFlow = () => {
 
     const handleTimeSlotClick = (date: Date, time: string, employeeId: string) => {
       const formattedDate = formatDate(date);
+      // Находим следующее свободное время после выбранного слота
+      const existingTasks = getTasksForDate(date, employeeId);
+      const [clickedHour, clickedMinute] = time.split(':').map(Number);
+      const clickedTimeInMinutes = clickedHour * 60 + clickedMinute;
+
+      let startTime = time;
+      let endTime = calculateEndTime(time, 60);
+
+      // Проверяем, есть ли задачи, которые начинаются раньше выбранного времени
+      const previousTasks = existingTasks.filter(task => {
+        const [taskHour, taskMinute] = task.endTime.split(':').map(Number);
+        const taskEndTimeInMinutes = taskHour * 60 + taskMinute;
+        return taskEndTimeInMinutes <= clickedTimeInMinutes;
+      });
+
+      if (previousTasks.length > 0) {
+        // Берем время окончания последней предыдущей задачи
+        const lastTask = previousTasks.sort((a, b) => {
+          const [aHour, aMinute] = a.endTime.split(':').map(Number);
+          const [bHour, bMinute] = b.endTime.split(':').map(Number);
+          return (bHour * 60 + bMinute) - (aHour * 60 + aMinute);
+        })[0];
+        startTime = lastTask.endTime;
+        endTime = calculateEndTime(startTime, 60);
+      }
+
       setTaskForm({
         ...taskForm,
         date: formattedDate,
-        startTime: time,
-        endTime: calculateEndTime(time, 60),
+        startTime,
+        endTime,
         employeeIds: [employeeId]
       });
       setShowTaskModal(true);
+    };
+
+    const timeGridStyles = {
+      height: '80px', // Увеличим высоту ячеек
+      minWidth: '250px' // Увеличим минимальную ширину колонок
     };
 
     return (
@@ -587,7 +623,8 @@ const TeamFlow = () => {
                   <div
                     key={time}
                     onClick={() => handleTimeSlotClick(currentDate, time, employee.id)}
-                    className="h-[60px] border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                    className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                    style={{ height: timeGridStyles.height }}
                   />
                 ))}
                 
@@ -605,18 +642,12 @@ const TeamFlow = () => {
                       borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
                       opacity: task.completed ? 0.6 : 1
                     }}
-                    className="rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all"
+                    className="rounded-lg p-3 cursor-pointer hover:opacity-90 transition-all overflow-y-auto"
                   >
-                    <div className="text-sm font-medium truncate">
-                      {task.title}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      {task.startTime} - {task.endTime}
-                    </div>
+                    <div className="text-sm font-medium">{task.title}</div>
+                    <div className="text-xs text-gray-600">{task.startTime} - {task.endTime}</div>
                     {task.description && (
-                      <div className="text-xs text-gray-500 mt-1 line-clamp-2">
-                        {task.description}
-                      </div>
+                      <div className="text-xs text-gray-500 mt-1">{task.description}</div>
                     )}
                   </div>
                 ))}
@@ -1004,17 +1035,23 @@ const TeamFlow = () => {
                       key={priority}
                       type="button"
                       onClick={() => setTaskForm({ ...taskForm, priority })}
-                      className={`p-3 rounded-lg border-2 transition-all ${
+                      className={`p-3 rounded-lg transition-all ${
                         taskForm.priority === priority
-                          ? `${PRIORITY_COLORS[priority].border} ${PRIORITY_COLORS[priority].bg}`
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? `bg-opacity-100 shadow-inner ${PRIORITY_COLORS[priority].bg}`
+                          : 'bg-opacity-50 hover:bg-opacity-75'
                       }`}
+                      style={{
+                        backgroundColor: taskForm.priority === priority 
+                          ? PRIORITY_COLORS[priority].color + '30'
+                          : PRIORITY_COLORS[priority].color + '10',
+                        borderLeft: `4px solid ${PRIORITY_COLORS[priority].color}`
+                      }}
                     >
-                      <div className={
+                      <div className={`font-medium text-sm ${
                         taskForm.priority === priority 
                           ? PRIORITY_COLORS[priority].text
                           : 'text-gray-600'
-                      }>
+                      }`}>
                         {priority === 'low' && 'Низкий'}
                         {priority === 'medium' && 'Средний'}
                         {priority === 'high' && 'Высокий'}
