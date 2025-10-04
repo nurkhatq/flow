@@ -16,8 +16,11 @@ type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 const WORK_START_HOUR = 8;
 const WORK_END_HOUR = 22;
+const CELL_HEIGHT = 80; // Height for 1 hour cell in pixels
+
+// Generate hourly slots (default view)
 const HOUR_SLOTS = Array.from(
-  { length: WORK_END_HOUR - WORK_START_HOUR + 1 },
+  { length: WORK_END_HOUR - WORK_START_HOUR },
   (_, i) => `${(i + WORK_START_HOUR).toString().padStart(2, '0')}:00`
 );
 
@@ -58,7 +61,6 @@ const TeamFlow = () => {
     priority: 'medium'
   });
 
-  // Загрузка данных
   useEffect(() => {
     fetchEmployees();
     fetchTasks();
@@ -166,7 +168,7 @@ const TeamFlow = () => {
     }
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!taskForm.title.trim() || taskForm.employeeIds.length === 0) return;
     
     const taskData = {
@@ -175,31 +177,54 @@ const TeamFlow = () => {
       createdBy: currentUser?.id
     };
     
-    if (editingTask) {
-      setTasks(tasks.map(t => t.id === editingTask.id ? taskData : t));
-    } else {
-      setTasks(prevTasks => [...prevTasks, taskData]);
-    }
+    try {
+      if (editingTask) {
+        await fetch('/api/tasks', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(taskData)
+        });
+        setTasks(tasks.map(t => t.id === editingTask.id ? taskData : t));
+      } else {
+        const response = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(taskData)
+        });
+        const savedTask = await response.json();
+        setTasks(prevTasks => [...prevTasks, savedTask]);
 
-    // Create notifications
-    const newNotifications = taskForm.employeeIds
-      .filter(id => id !== currentUser?.id)
-      .map(employeeId => ({
-        id: Date.now().toString() + employeeId,
-        employeeId,
-        taskId: taskData.id,
-        message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`,
-        date: new Date().toISOString(),
-        read: false
-      }));
+        // Create notifications
+        const newNotifications = taskForm.employeeIds
+          .filter(id => id !== currentUser?.id)
+          .map(employeeId => ({
+            id: Date.now().toString() + employeeId,
+            employeeId,
+            taskId: taskData.id,
+            message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`,
+            date: new Date().toISOString(),
+            read: false
+          }));
 
-    if (newNotifications.length > 0) {
-      setNotifications(prev => [...prev, ...newNotifications]);
+        for (const notification of newNotifications) {
+          await fetch('/api/notifications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(notification)
+          });
+        }
+
+        if (newNotifications.length > 0) {
+          setNotifications(prev => [...prev, ...newNotifications]);
+        }
+      }
+      
+      setShowTaskModal(false);
+      setEditingTask(null);
+      resetTaskForm();
+    } catch (error) {
+      console.error('Error adding task:', error);
     }
-    
-    setShowTaskModal(false);
-    setEditingTask(null);
-    resetTaskForm();
   };
 
   const resetTaskForm = () => {
@@ -247,13 +272,11 @@ const TeamFlow = () => {
     }
   };
 
-  // Обновим функцию calculateEndTime
   const calculateEndTime = (startTime: string, duration: number) => {
     const [hours, minutes] = startTime.split(':').map(Number);
     const totalMinutes = hours * 60 + minutes + duration;
     const endHours = Math.floor(totalMinutes / 60);
     const endMinutes = totalMinutes % 60;
-    // Проверяем, чтобы время не выходило за пределы рабочего дня
     if (endHours > WORK_END_HOUR) {
       return `${WORK_END_HOUR}:00`;
     }
@@ -402,14 +425,14 @@ const TeamFlow = () => {
   const getTaskPosition = (startTime: string) => {
     const [hours, minutes] = startTime.split(':').map(Number);
     const totalMinutes = (hours - WORK_START_HOUR) * 60 + minutes;
-    return (totalMinutes / 30) * 30; // Adjust multiplier to match grid size
+    return (totalMinutes / 60) * CELL_HEIGHT;
   };
 
   const getTaskHeight = (startTime: string, endTime: string) => {
     const [startHours, startMinutes] = startTime.split(':').map(Number);
     const [endHours, endMinutes] = endTime.split(':').map(Number);
     const duration = (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes);
-    return (duration / 30) * 60;
+    return (duration / 60) * CELL_HEIGHT;
   };
 
   const isEmployeeAvailable = (employeeId: string, date: string, startTime: string, endTime: string) => {
@@ -425,9 +448,8 @@ const TeamFlow = () => {
     return conflictingTasks.length === 0;
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter(n => !n.read && n.employeeId === currentUser?.id).length;
 
-  // Employee Selector Component
   const EmployeeSelector = () => {
     return (
       <div className="space-y-2">
@@ -548,31 +570,34 @@ const TeamFlow = () => {
 
     const handleTimeSlotClick = (date: Date, time: string, employeeId: string) => {
       const formattedDate = formatDate(date);
-      // Находим следующее свободное время после выбранного слота
       const existingTasks = getTasksForDate(date, employeeId);
       const [clickedHour, clickedMinute] = time.split(':').map(Number);
       const clickedTimeInMinutes = clickedHour * 60 + clickedMinute;
 
-      let startTime = time;
-      let endTime = calculateEndTime(time, 60);
+      let startTimeInMinutes = clickedTimeInMinutes;
+      let foundConflict = true;
 
-      // Проверяем, есть ли задачи, которые начинаются раньше выбранного времени
-      const previousTasks = existingTasks.filter(task => {
-        const [taskHour, taskMinute] = task.endTime.split(':').map(Number);
-        const taskEndTimeInMinutes = taskHour * 60 + taskMinute;
-        return taskEndTimeInMinutes <= clickedTimeInMinutes;
-      });
+      while (foundConflict) {
+        foundConflict = false;
+        for (const task of existingTasks) {
+          const [taskStartHour, taskStartMinute] = task.startTime.split(':').map(Number);
+          const [taskEndHour, taskEndMinute] = task.endTime.split(':').map(Number);
+          const taskStartInMinutes = taskStartHour * 60 + taskStartMinute;
+          const taskEndInMinutes = taskEndHour * 60 + taskEndMinute;
 
-      if (previousTasks.length > 0) {
-        // Берем время окончания последней предыдущей задачи
-        const lastTask = previousTasks.sort((a, b) => {
-          const [aHour, aMinute] = a.endTime.split(':').map(Number);
-          const [bHour, bMinute] = b.endTime.split(':').map(Number);
-          return (bHour * 60 + bMinute) - (aHour * 60 + aMinute);
-        })[0];
-        startTime = lastTask.endTime;
-        endTime = calculateEndTime(startTime, 60);
+          if (startTimeInMinutes >= taskStartInMinutes && startTimeInMinutes < taskEndInMinutes) {
+            startTimeInMinutes = taskEndInMinutes;
+            foundConflict = true;
+            break;
+          }
+        }
       }
+
+      const startHours = Math.floor(startTimeInMinutes / 60);
+      const startMinutes = startTimeInMinutes % 60;
+      const startTime = `${startHours.toString().padStart(2, '0')}:${startMinutes.toString().padStart(2, '0')}`;
+      
+      const endTime = calculateEndTime(startTime, 60);
 
       setTaskForm({
         ...taskForm,
@@ -584,25 +609,20 @@ const TeamFlow = () => {
       setShowTaskModal(true);
     };
 
-    const timeGridStyles = {
-      height: '80px', // Увеличим высоту ячеек
-      minWidth: '250px' // Увеличим минимальную ширину колонок
-    };
-
     return (
       <div className="bg-white rounded-xl shadow-lg p-4 overflow-x-auto">
         <div className="flex">
           <div className="w-20 flex-shrink-0">
             <div className="h-24"></div>
             {HOUR_SLOTS.map(time => (
-              <div key={time} className="h-[60px] flex items-start justify-end pr-2 text-xs text-gray-500">
+              <div key={time} style={{ height: `${CELL_HEIGHT}px` }} className="flex items-start justify-end pr-2 text-xs text-gray-500">
                 {time}
               </div>
             ))}
           </div>
 
           {employeesToShow.map(employee => (
-            <div key={employee.id} className="flex-1 min-w-[200px] border-l border-gray-200">
+            <div key={employee.id} className="flex-1 min-w-[250px] border-l border-gray-200">
               <div className="h-24 pb-2 mb-2">
                 <div className="flex items-center gap-2 p-2">
                   <div
@@ -624,7 +644,7 @@ const TeamFlow = () => {
                     key={time}
                     onClick={() => handleTimeSlotClick(currentDate, time, employee.id)}
                     className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                    style={{ height: timeGridStyles.height }}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                   />
                 ))}
                 
@@ -658,12 +678,6 @@ const TeamFlow = () => {
       </div>
     );
   };
-
-  // Остальной код компонента остается таким же, как в предыдущей версии
-  // (рендеринг модальных окон и т.д.)
-
-  // Для экономии места, здесь показаны только ключевые изменения
-  // Полный рендеринг компонента можно взять из предыдущего ответа
 
   if (!currentUser && employees.length === 0) {
     return (
@@ -905,7 +919,7 @@ const TeamFlow = () => {
                 <button
                   key={emp.id}
                   onClick={() => setSelectedEmployee(emp.id)}
-                  className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-2 relative ${
+                  className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-2 relative group ${
                     selectedEmployee === emp.id 
                       ? 'text-white' 
                       : 'bg-gray-100 hover:bg-gray-200'
@@ -941,7 +955,7 @@ const TeamFlow = () => {
         {viewMode === 'month' ? renderMonthView() : renderTimelineView()}
       </div>
 
-      {/* Модальные окна */}
+      {/* Task Modal */}
       {showTaskModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1118,42 +1132,45 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Модальное окно уведомлений */}
+      {/* Notifications Modal */}
       {showNotifications && (
         <div className="fixed right-4 top-20 w-96 bg-white rounded-xl shadow-2xl max-h-[600px] overflow-y-auto z-50">
           <div className="p-4 border-b">
             <h3 className="text-lg font-semibold">Уведомления</h3>
           </div>
           <div className="p-4">
-            {notifications.length === 0 ? (
+            {notifications.filter(n => n.employeeId === currentUser?.id).length === 0 ? (
               <div className="text-center py-6 text-gray-500">
                 Нет новых уведомлений
               </div>
             ) : (
-              notifications.map(notification => (
-                <div
-                  key={notification.id}
-                  className={`flex items-center justify-between p-3 rounded-lg mb-2 transition-all ${
-                    !notification.read ? 'bg-blue-50' : ''
-                  }`}
-                >
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{notification.message}</div>
-                    <div className="text-xs text-gray-500">
-                      {notification.created_at && new Date(notification.created_at).toLocaleString('ru-RU', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric'
-                      })}
+              notifications
+                .filter(n => n.employeeId === currentUser?.id)
+                .map(notification => (
+                  <div
+                    key={notification.id}
+                    onClick={() => markNotificationRead(notification.id)}
+                    className={`flex items-center justify-between p-3 rounded-lg mb-2 transition-all cursor-pointer hover:bg-gray-50 ${
+                      !notification.read ? 'bg-blue-50' : ''
+                    }`}
+                  >
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{notification.message}</div>
+                      <div className="text-xs text-gray-500">
+                        {notification.created_at && new Date(notification.created_at).toLocaleString('ru-RU', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </div>
                     </div>
+                    {!notification.read && (
+                      <div className="w-2.5 h-2.5 bg-blue-600 rounded-full" />
+                    )}
                   </div>
-                  {!notification.read && (
-                    <div className="w-2.5 h-2.5 bg-blue-600 rounded-full" />
-                  )}
-                </div>
-              ))
+                ))
             )}
           </div>
           <div className="p-4 border-t">
@@ -1167,7 +1184,7 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Модальное окно сотрудников */}
+      {/* Employee Modal */}
       {showEmployeeModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
@@ -1212,7 +1229,7 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Модальное окно списка шаблонов */}
+      {/* Template List Modal */}
       {showTemplateListModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1266,7 +1283,7 @@ const TeamFlow = () => {
         </div>
       )}
 
-      {/* Модальное окно создания/редактирования шаблона */}
+      {/* Template Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
