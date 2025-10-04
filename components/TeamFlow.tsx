@@ -427,7 +427,7 @@ const TeamFlow = () => {
     return (
       <div className="space-y-2">
         <label className="block text-sm font-medium">Сотрудники *</label>
-        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+        <div className="grid grid-cols-2 gap-2">
           {employees.map(employee => {
             const isAvailable = isEmployeeAvailable(
               employee.id, 
@@ -435,46 +435,42 @@ const TeamFlow = () => {
               taskForm.startTime, 
               taskForm.endTime
             );
+            const isSelected = taskForm.employeeIds.includes(employee.id);
             
             return (
-              <label
+              <button
                 key={employee.id}
-                className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  taskForm.employeeIds.includes(employee.id)
+                onClick={() => {
+                  if (!isAvailable && !isSelected) return;
+                  
+                  const newIds = isSelected
+                    ? taskForm.employeeIds.filter(id => id !== employee.id)
+                    : [...taskForm.employeeIds, employee.id];
+                  setTaskForm({ ...taskForm, employeeIds: newIds });
+                }}
+                disabled={!isAvailable && !isSelected}
+                className={`flex items-center gap-3 p-3 border-2 rounded-lg transition-all ${
+                  isSelected
                     ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-200 hover:bg-gray-50'
                 } ${
-                  !isAvailable ? 'opacity-50 bg-gray-100 cursor-not-allowed' : ''
+                  !isAvailable && !isSelected ? 'opacity-50 bg-gray-100 cursor-not-allowed' : ''
                 }`}
               >
-                <input
-                  type="checkbox"
-                  checked={taskForm.employeeIds.includes(employee.id)}
-                  onChange={(e) => {
-                    if (e.target.checked && !isAvailable) return;
-                    
-                    const newIds = e.target.checked
-                      ? [...taskForm.employeeIds, employee.id]
-                      : taskForm.employeeIds.filter(id => id !== employee.id);
-                    setTaskForm({ ...taskForm, employeeIds: newIds });
-                  }}
-                  disabled={!isAvailable}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                />
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
                   style={{ backgroundColor: employee.color }}
                 >
                   {employee.avatar}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 text-left">
                   <div className="font-medium text-sm">{employee.name}</div>
                   <div className="text-xs text-gray-500">{employee.position}</div>
                 </div>
-                {!isAvailable && (
+                {!isAvailable && !isSelected && (
                   <div className="text-xs text-red-500">Занят</div>
                 )}
-              </label>
+              </button>
             );
           })}
         </div>
@@ -559,7 +555,7 @@ const TeamFlow = () => {
 
     return (
       <div className="bg-white rounded-xl shadow-lg p-4 overflow-x-auto">
-        <div className="flex gap-2">
+        <div className="flex">
           <div className="w-20 flex-shrink-0">
             <div className="h-24"></div>
             {HOUR_SLOTS.map(time => (
@@ -569,56 +565,63 @@ const TeamFlow = () => {
             ))}
           </div>
 
-          {dates.map(date => (
-            <React.Fragment key={formatDate(date)}>
-              {employeesToShow.map(employee => {
-                const efficiency = getEmployeeEfficiency(employee.id);
-                const dateTasks = getTasksForDate(date, employee.id);
-
-                return (
-                  <div key={`${formatDate(date)}-${employee.id}`} className="flex-1 min-w-[200px]">
-                    <div className="h-24 border-b-2 pb-2 mb-2">
-                      {/* Employee header - keep existing code */}
-                    </div>
-
-                    <div className="relative border-l border-gray-200">
-                      {HOUR_SLOTS.map((time, idx) => (
-                        <div
-                          key={time}
-                          onClick={() => handleTimeSlotClick(date, time, employee.id)}
-                          className="h-[60px] border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        ></div>
-                      ))}
-                      
-                      {dateTasks.map(task => {
-                        const top = getTaskPosition(task.startTime);
-                        const height = getTaskHeight(task.startTime, task.endTime);
-                        
-                        return (
-                          <div
-                            key={task.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openTaskModal(task);
-                            }}
-                            className="absolute left-1 right-1 rounded-lg p-2 cursor-pointer hover:opacity-90 transition-opacity"
-                            style={{
-                              top: `${top}px`,
-                              height: `${height}px`,
-                              backgroundColor: PRIORITY_COLORS[task.priority].bg,
-                              borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
-                              opacity: task.completed ? 0.5 : 1
-                            }}
-                          >
-                            {/* Task content - keep existing code */}
-                          </div>
-                        );
-                      })}
-                    </div>
+          {employeesToShow.map(employee => (
+            <div key={employee.id} className="flex-1 min-w-[200px] border-l border-gray-200">
+              <div className="h-24 pb-2 mb-2">
+                <div className="flex items-center gap-2 p-2">
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                    style={{ backgroundColor: employee.color }}
+                  >
+                    {employee.avatar}
                   </div>
-                );
-              })}
-            </React.Fragment>
+                  <div>
+                    <div className="font-semibold text-sm">{employee.name}</div>
+                    <div className="text-xs text-gray-500">{employee.position}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative">
+                {HOUR_SLOTS.map(time => (
+                  <div
+                    key={time}
+                    onClick={() => handleTimeSlotClick(currentDate, time, employee.id)}
+                    className="h-[60px] border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  />
+                ))}
+                
+                {getTasksForDate(currentDate, employee.id).map(task => (
+                  <div
+                    key={task.id}
+                    onClick={() => openTaskModal(task)}
+                    style={{
+                      position: 'absolute',
+                      top: `${getTaskPosition(task.startTime)}px`,
+                      height: `${getTaskHeight(task.startTime, task.endTime)}px`,
+                      left: '4px',
+                      right: '4px',
+                      backgroundColor: PRIORITY_COLORS[task.priority].color + '20',
+                      borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
+                      opacity: task.completed ? 0.6 : 1
+                    }}
+                    className="rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all"
+                  >
+                    <div className="text-sm font-medium truncate">
+                      {task.title}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      {task.startTime} - {task.endTime}
+                    </div>
+                    {task.description && (
+                      <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                        {task.description}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>
@@ -996,24 +999,26 @@ const TeamFlow = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Приоритет</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {Object.entries(PRIORITY_COLORS).map(([key, value]) => (
+                  {(Object.keys(PRIORITY_COLORS) as TaskPriority[]).map((priority) => (
                     <button
-                      key={key}
-                      onClick={() => setTaskForm({ 
-                        ...taskForm, 
-                        priority: key as TaskPriority 
-                      })}
-                      className={`px-4 py-3 rounded-lg border-2 transition-all ${
-                        taskForm.priority === key 
-                          ? `${value.border} ${value.bg}` 
+                      key={priority}
+                      type="button"
+                      onClick={() => setTaskForm({ ...taskForm, priority })}
+                      className={`p-3 rounded-lg border-2 transition-all ${
+                        taskForm.priority === priority
+                          ? `${PRIORITY_COLORS[priority].border} ${PRIORITY_COLORS[priority].bg}`
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
-                      <div className={`font-medium text-sm ${taskForm.priority === key ? value.text : 'text-gray-600'}`}>
-                        {key === 'low' && 'Низкий'}
-                        {key === 'medium' && 'Средний'}
-                        {key === 'high' && 'Высокий'}
-                        {key === 'urgent' && 'Срочный'}
+                      <div className={
+                        taskForm.priority === priority 
+                          ? PRIORITY_COLORS[priority].text
+                          : 'text-gray-600'
+                      }>
+                        {priority === 'low' && 'Низкий'}
+                        {priority === 'medium' && 'Средний'}
+                        {priority === 'high' && 'Высокий'}
+                        {priority === 'urgent' && 'Срочный'}
                       </div>
                     </button>
                   ))}
