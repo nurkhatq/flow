@@ -2,6 +2,21 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import pool from '../../lib/db';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   const { method } = req;
 
   console.log(`Employees API: ${method} request`);
@@ -19,13 +34,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log('Creating employee:', req.body);
         const { id, name, position, avatar, color } = req.body;
         
-        if (!name) {
+        if (!name || !name.trim()) {
           return res.status(400).json({ error: 'Name is required' });
         }
 
         const insertResult = await pool.query(
           'INSERT INTO employees (id, name, position, avatar, color) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-          [id, name, position || 'Employee', avatar, color]
+          [id, name.trim(), position || 'Employee', avatar, color]
         );
         
         console.log('Employee created:', insertResult.rows[0]);
@@ -36,25 +51,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const { id: deleteId } = req.query;
         console.log('Deleting employee:', deleteId);
         
+        if (!deleteId || Array.isArray(deleteId)) {
+          return res.status(400).json({ error: 'Valid ID is required' });
+        }
+
         await pool.query('DELETE FROM employees WHERE id = $1', [deleteId]);
-        res.status(200).json({ message: 'Employee deleted' });
+        res.status(200).json({ message: 'Employee deleted successfully' });
         break;
 
       default:
-        res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
-        res.status(405).end(`Method ${method} Not Allowed`);
+        res.setHeader('Allow', ['GET', 'POST', 'DELETE', 'OPTIONS']);
+        res.status(405).json({ error: `Method ${method} Not Allowed` });
     }
   } catch (error) {
     console.error('Employees API Error:', error);
     
-    // Более детальная информация об ошибке
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    
     res.status(500).json({ 
       error: 'Internal Server Error',
-      message: errorMessage,
-      // stack: process.env.NODE_ENV === 'development' ? errorStack : undefined // Раскомментируйте для разработки
+      message: errorMessage
     });
   }
 }
