@@ -959,7 +959,7 @@ const TeamFlow = () => {
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-3 mb-4">
               <Calendar className="w-12 h-12 text-blue-600" />
-              <h1 className="text-5xl font-bold text-gray-800">TeamFlow</h1>
+              <h1 className="text-5xl font-bold text-gray-800">DM</h1>
             </div>
             <p className="text-xl text-gray-600">Создайте первого сотрудника для начала работы</p>
           </div>
@@ -987,7 +987,7 @@ const TeamFlow = () => {
                     value={employeeForm.name}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })}
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="Иван Петров"
+                    placeholder="Димаш Кудайберген"
                   />
                 </div>
                 <div>
@@ -1029,7 +1029,7 @@ const TeamFlow = () => {
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-3 mb-4">
               <Calendar className="w-12 h-12 text-blue-600" />
-              <h1 className="text-5xl font-bold text-gray-800">TeamFlow</h1>
+              <h1 className="text-5xl font-bold text-gray-800">DM</h1>
             </div>
             <p className="text-xl text-gray-600">Выберите свой профиль</p>
           </div>
@@ -1065,7 +1065,7 @@ const TeamFlow = () => {
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <Calendar className="w-8 h-8 text-blue-600" />
-                <span className="text-2xl font-bold text-gray-800">TeamFlow</span>
+                <span className="text-2xl font-bold text-gray-800">DM</span>
               </div>
               
               <div className="flex items-center gap-2">
@@ -1486,7 +1486,7 @@ const TeamFlow = () => {
                   value={employeeForm.name}
                   onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Иван Петров"
+                  placeholder="Димаш Кудайберген"
                 />
               </div>
               <div>
