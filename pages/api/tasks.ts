@@ -20,6 +20,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   console.log(`Tasks API: ${method} request`);
 
+  // Функция для форматирования даты в YYYY-MM-DD
+  const formatDate = (date: any) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    const day = d.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Функция для форматирования времени HH:MM:SS -> HH:MM
+  const formatTime = (time: string) => {
+    if (!time) return null;
+    return time.substring(0, 5); // Обрезаем секунды
+  };
+
   try {
     switch (method) {
       case 'GET':
@@ -29,13 +45,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             t.id,
             t.title,
             t.date,
-            t.start_time as "startTime",
-            t.end_time as "endTime",
+            t.start_time,
+            t.end_time,
             t.priority,
             t.description,
             t.completed,
-            t.created_by as "createdBy",
-            t.created_at as "createdAt",
+            t.created_by,
+            t.created_at,
             COALESCE(
               json_agg(
                 json_build_object(
@@ -56,12 +72,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         `);
         
         const tasks = result.rows.map(row => ({
-          ...row,
-          employeeIds: row.employees.map((emp: any) => emp.id),
-          employees: row.employees
+          id: row.id,
+          title: row.title,
+          date: formatDate(row.date), // ← ФОРМАТИРУЕМ ДАТУ
+          startTime: formatTime(row.start_time), // ← ФОРМАТИРУЕМ ВРЕМЯ
+          endTime: formatTime(row.end_time), // ← ФОРМАТИРУЕМ ВРЕМЯ
+          priority: row.priority,
+          description: row.description,
+          completed: row.completed,
+          createdBy: row.created_by,
+          createdAt: row.created_at,
+          employees: row.employees,
+          employeeIds: row.employees.map((emp: any) => emp.id)
         }));
 
         console.log(`Found ${tasks.length} tasks`);
+        console.log('Sample task:', tasks[0]); // Для отладки
         res.status(200).json(tasks);
         break;
 
@@ -96,12 +122,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             t.id,
             t.title,
             t.date,
-            t.start_time as "startTime",
-            t.end_time as "endTime",
+            t.start_time,
+            t.end_time,
             t.priority,
             t.description,
             t.completed,
-            t.created_by as "createdBy",
+            t.created_by,
             COALESCE(
               json_agg(
                 json_build_object(
@@ -122,9 +148,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         `, [id]);
 
         const newTask = {
-          ...fullTaskResult.rows[0],
-          employeeIds: fullTaskResult.rows[0].employees.map((emp: any) => emp.id),
-          employees: fullTaskResult.rows[0].employees
+          id: fullTaskResult.rows[0].id,
+          title: fullTaskResult.rows[0].title,
+          date: formatDate(fullTaskResult.rows[0].date), // ← ФОРМАТИРУЕМ
+          startTime: formatTime(fullTaskResult.rows[0].start_time), // ← ФОРМАТИРУЕМ
+          endTime: formatTime(fullTaskResult.rows[0].end_time), // ← ФОРМАТИРУЕМ
+          priority: fullTaskResult.rows[0].priority,
+          description: fullTaskResult.rows[0].description,
+          completed: fullTaskResult.rows[0].completed,
+          createdBy: fullTaskResult.rows[0].created_by,
+          employees: fullTaskResult.rows[0].employees,
+          employeeIds: fullTaskResult.rows[0].employees.map((emp: any) => emp.id)
         };
 
         console.log('Task created:', newTask);
