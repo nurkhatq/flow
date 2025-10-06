@@ -81,7 +81,7 @@ const TeamFlow = () => {
   useEffect(() => {
     if (!isAutoRefreshEnabled || !currentUser) return;
 
-    const REFRESH_INTERVAL = 10000; // 10 секунд
+    const REFRESH_INTERVAL = 100000; // 10 секунд
 
     const intervalId = setInterval(() => {
       console.log('🔄 Автообновление данных...');
@@ -308,24 +308,18 @@ const manualRefresh = async () => {
           throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
-        const savedTask = await response.json();
-        console.log('Task created successfully:', savedTask);
-        
-        setTasks(prevTasks => {
-          const newTasks = [...prevTasks, savedTask];
-          console.log('Updated tasks array:', newTasks);
-          return newTasks;
-        });
+        const savedTasks = await response.json();
+        console.log('Tasks created successfully:', savedTasks);
+        setTasks(prevTasks => [...prevTasks, ...savedTasks]);
 
         // Create notifications
         const newNotifications = taskForm.employeeIds
           .filter(id => id !== currentUser?.id)
-          .map(employeeId => ({
-            id: Date.now().toString() + employeeId,
+          .map((employeeId, index) => ({
+            id: (Date.now() + index).toString(), // Уникальный ID для каждого
             employeeId,
             taskId: taskData.id,
             message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`,
-            date: new Date().toISOString(),
             read: false
           }));
 
@@ -530,7 +524,36 @@ const manualRefresh = async () => {
   };
 
   const getEmployeeEfficiency = (employeeId: string) => {
-    const employeeTasks = tasks.filter(t => t.employeeIds.includes(employeeId));
+    let employeeTasks: Task[] = [];
+    
+    // Фильтруем задачи по текущему периоду
+    if (viewMode === 'day') {
+      employeeTasks = tasks.filter(t => 
+        t.employeeIds.includes(employeeId) && 
+        t.date === formatDate(currentDate)
+      );
+    } else if (viewMode === 'week') {
+      const weekDates = getWeekDates(currentDate);
+      const weekStart = formatDate(weekDates[0]);
+      const weekEnd = formatDate(weekDates[6]);
+      
+      employeeTasks = tasks.filter(t => 
+        t.employeeIds.includes(employeeId) && 
+        t.date >= weekStart && 
+        t.date <= weekEnd
+      );
+    } else if (viewMode === 'month') {
+      const monthDates = getMonthDates(currentDate);
+      const monthStart = formatDate(monthDates[0]);
+      const monthEnd = formatDate(monthDates[monthDates.length - 1]);
+      
+      employeeTasks = tasks.filter(t => 
+        t.employeeIds.includes(employeeId) && 
+        t.date >= monthStart && 
+        t.date <= monthEnd
+      );
+    }
+    
     if (employeeTasks.length === 0) return 0;
     const completed = employeeTasks.filter(t => t.completed).length;
     return Math.round((completed / employeeTasks.length) * 100);

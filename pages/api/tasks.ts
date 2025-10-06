@@ -102,70 +102,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         await pool.query('BEGIN');
         
-        const taskResult = await pool.query(
-          `INSERT INTO tasks (id, title, date, start_time, end_time, priority, description, completed, status, created_by) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-          [id, title.trim(), date, startTime, endTime, priority, description || '', completed || false, status || 'pending', createdBy]
-        );
+        const createdTasks = [];
+        
+        // Создаем отдельную задачу для каждого сотрудника
+        for (let i = 0; i < employeeIds.length; i++) {
+          const employeeId = employeeIds[i];
+          const taskId = i === 0 ? id : `${id}_${i}`; // Уникальный ID для каждой копии
+          
+          const taskResult = await pool.query(
+            `INSERT INTO tasks (id, title, date, start_time, end_time, priority, description, completed, status, created_by) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+            [taskId, title.trim(), date, startTime, endTime, priority, description || '', completed || false, status || 'pending', createdBy]
+          );
 
-        for (const employeeId of employeeIds) {
           await pool.query(
             'INSERT INTO task_assignments (task_id, employee_id) VALUES ($1, $2)',
-            [id, employeeId]
+            [taskId, employeeId]
           );
+          
+          createdTasks.push(taskResult.rows[0]);
         }
 
         await pool.query('COMMIT');
 
-        // Получаем полную задачу с сотрудниками
-        const fullTaskResult = await pool.query(`
-          SELECT 
-            t.id,
-            t.title,
-            t.date,
-            t.start_time,
-            t.end_time,
-            t.priority,
-            t.description,
-            t.completed,
-            t.status,
-            t.created_by,
-            COALESCE(
-              json_agg(
-                json_build_object(
-                  'id', e.id,
-                  'name', e.name,
-                  'position', e.position,
-                  'avatar', e.avatar,
-                  'color', e.color
-                )
-              ) FILTER (WHERE e.id IS NOT NULL),
-              '[]'
-            ) as employees
-          FROM tasks t
-          LEFT JOIN task_assignments ta ON t.id = ta.task_id
-          LEFT JOIN employees e ON ta.employee_id = e.id
-          WHERE t.id = $1
-          GROUP BY t.id
-        `, [id]);
-
-        const newTask = {
-          id: fullTaskResult.rows[0].id,
-          title: fullTaskResult.rows[0].title,
-          date: formatDate(fullTaskResult.rows[0].date),
-          startTime: formatTime(fullTaskResult.rows[0].start_time),
-          endTime: formatTime(fullTaskResult.rows[0].end_time),
-          priority: fullTaskResult.rows[0].priority,
-          description: fullTaskResult.rows[0].description,
-          completed: fullTaskResult.rows[0].completed,
-          status: fullTaskResult.rows[0].status || 'pending',
-          createdBy: fullTaskResult.rows[0].created_by,
-          employees: fullTaskResult.rows[0].employees,
-          employeeIds: fullTaskResult.rows[0].employees.map((emp: any) => emp.id)
-        };
-
-        console.log('Task created:', newTask);
-        res.status(201).json(newTask);
+        // Возвращаем все созданные задачи
+        res.status(201).json(createdTasks);
         break;
 
       case 'PUT':

@@ -40,7 +40,6 @@ export interface Notification {
   employeeId: string;
   taskId: string;
   message: string;
-  date: string;
   read: boolean;
   created_at?: string;
 }
