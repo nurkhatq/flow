@@ -94,7 +94,15 @@ const TeamFlow = () => {
 
     return () => clearInterval(intervalId);
   }, [isAutoRefreshEnabled, currentUser, tasks, notifications]);
-
+  useEffect(() => {
+    const savedUserId = localStorage.getItem('currentUserId');
+    if (savedUserId && employees.length > 0 && !currentUser) {
+      const savedUser = employees.find(emp => emp.id === savedUserId);
+      if (savedUser) {
+        setCurrentUser(savedUser);
+      }
+    }
+  }, [employees, currentUser]);
   const fetchEmployees = async () => {
     try {
       const response = await fetch('/api/employees');
@@ -247,109 +255,111 @@ const manualRefresh = async () => {
   };
 
   const addTask = async () => {
-    console.log('=== CREATING TASK DEBUG ===');
-    console.log('Task form data:', taskForm);
-    
-    if (!taskForm.title.trim()) {
-      alert('Пожалуйста, введите название задачи');
-      return;
-    }
-    
-    if (taskForm.employeeIds.length === 0) {
-      alert('Пожалуйста, выберите хотя бы одного сотрудника');
-      return;
-    }
-    
-    if (!taskForm.date) {
-      alert('Пожалуйста, выберите дату');
-      return;
-    }
-    
-    const taskData = {
-      id: editingTask ? editingTask.id : Date.now().toString(),
-      ...taskForm,
-      createdBy: currentUser?.id
-    };
-    
-    console.log('Task data to send:', taskData);
-    
-    try {
-      if (editingTask) {
-        console.log('Updating existing task...');
-        const response = await fetch('/api/tasks', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(taskData)
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        setTasks(tasks.map(t => t.id === editingTask.id ? taskData : t));
-        console.log('Task updated successfully');
-      } else {
-        console.log('Creating new task...');
-        console.log('Sending POST to /api/tasks');
-        
-        const response = await fetch('/api/tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(taskData)
-        });
-        
-        console.log('Response status:', response.status);
-        console.log('Response OK:', response.ok);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Error response:', errorText);
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        const savedTasks = await response.json();
-        console.log('Tasks created successfully:', savedTasks);
-        setTasks(prevTasks => [...prevTasks, ...savedTasks]);
-
-        // Create notifications
-        const newNotifications = taskForm.employeeIds
-          .filter(id => id !== currentUser?.id)
-          .map((employeeId, index) => ({
-            id: (Date.now() + index).toString(), // Уникальный ID для каждого
-            employeeId,
-            taskId: taskData.id,
-            message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`,
-            read: false
-          }));
-
-        for (const notification of newNotifications) {
-          await fetch('/api/notifications', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(notification)
-          });
-        }
-
-        if (newNotifications.length > 0) {
-          setNotifications(prev => [...prev, ...newNotifications]);
-        }
+  console.log('=== CREATING TASK DEBUG ===');
+  console.log('Task form data:', taskForm);
+  
+  if (!taskForm.title.trim()) {
+    alert('Пожалуйста, введите название задачи');
+    return;
+  }
+  
+  if (taskForm.employeeIds.length === 0) {
+    alert('Пожалуйста, выберите хотя бы одного сотрудника');
+    return;
+  }
+  
+  if (!taskForm.date) {
+    alert('Пожалуйста, выберите дату');
+    return;
+  }
+  
+  const taskData = {
+    id: editingTask ? editingTask.id : Date.now().toString(),
+    ...taskForm,
+    createdBy: currentUser?.id
+  };
+  
+  console.log('Task data to send:', taskData);
+  
+  try {
+    if (editingTask) {
+      console.log('Updating existing task...');
+      const response = await fetch('/api/tasks', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskData)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
-      setShowTaskModal(false);
-      setEditingTask(null);
-      resetTaskForm();
+      setTasks(tasks.map(t => t.id === editingTask.id ? taskData : t));
+      console.log('Task updated successfully');
+    } else {
+      console.log('Creating new task...');
+      console.log('Sending POST to /api/tasks');
       
-      // Refresh tasks
-      console.log('Refreshing tasks from server...');
-      await fetchTasks();
-      console.log('=== TASK CREATION COMPLETE ===');
-    } catch (error) {
-      console.error('=== ERROR CREATING TASK ===');
-      console.error('Error details:', error);
-      alert('Ошибка при создании задачи:\n' + error + '\n\nПроверьте консоль (F12) для деталей.');
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskData)
+      });
+      
+      console.log('Response status:', response.status);
+      console.log('Response OK:', response.ok);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
+      const savedTasks = await response.json();
+      console.log('Tasks created successfully:', savedTasks);
+      setTasks(prevTasks => [...prevTasks, ...savedTasks]);
+
+      // Create notifications для каждой созданной задачи
+      for (const task of savedTasks) {
+        // Пропускаем уведомление для текущего пользователя
+        if (task.employee_id === currentUser?.id) continue;
+        
+        const notification = {
+          id: `${Date.now()}_${task.id}`,
+          employeeId: task.employee_id,
+          taskId: task.id,
+          message: `${currentUser?.name} назначил вам задачу: ${taskForm.title}`,
+          read: false
+        };
+        
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(notification)
+        });
+      }
+
+      // Обновляем уведомления в state
+      if (currentUser) {
+        await fetchNotifications(currentUser.id);
+      }
     }
-  };
+    
+    setShowTaskModal(false);
+    setEditingTask(null);
+    resetTaskForm();
+    
+    // Refresh tasks
+    console.log('Refreshing tasks from server...');
+    await fetchTasks();
+    console.log('=== TASK CREATION COMPLETE ===');
+  } catch (error) {
+    console.error('=== ERROR CREATING TASK ===');
+    console.error('Error details:', error);
+    alert('Ошибка при создании задачи:\n' + error + '\n\nПроверьте консоль (F12) для деталей.');
+  }
+};
 
   const resetTaskForm = () => {
     setTaskForm({
@@ -529,7 +539,7 @@ const manualRefresh = async () => {
     // Фильтруем задачи по текущему периоду
     if (viewMode === 'day') {
       employeeTasks = tasks.filter(t => 
-        t.employeeIds.includes(employeeId) && 
+        t.employeeIds?.includes(employeeId) && 
         t.date === formatDate(currentDate)
       );
     } else if (viewMode === 'week') {
@@ -538,7 +548,7 @@ const manualRefresh = async () => {
       const weekEnd = formatDate(weekDates[6]);
       
       employeeTasks = tasks.filter(t => 
-        t.employeeIds.includes(employeeId) && 
+        t.employeeIds?.includes(employeeId) && 
         t.date >= weekStart && 
         t.date <= weekEnd
       );
@@ -548,7 +558,7 @@ const manualRefresh = async () => {
       const monthEnd = formatDate(monthDates[monthDates.length - 1]);
       
       employeeTasks = tasks.filter(t => 
-        t.employeeIds.includes(employeeId) && 
+        t.employeeIds?.includes(employeeId) && 
         t.date >= monthStart && 
         t.date <= monthEnd
       );
@@ -1207,7 +1217,10 @@ const SyncIndicator = () => {
             {employees.map((emp) => (
               <div
                 key={emp.id}
-                onClick={() => setCurrentUser(emp)}
+                onClick={() => {
+                  setCurrentUser(emp);
+                  localStorage.setItem('currentUserId', emp.id);
+                }}
                 className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer"
               >
                 <div
@@ -1334,7 +1347,10 @@ const SyncIndicator = () => {
               </button>
 
               <button
-                onClick={() => setCurrentUser(null)}
+                onClick={() => {
+                  setCurrentUser(null);
+                  localStorage.removeItem('currentUserId');
+                }}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Выход"
               >

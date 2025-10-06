@@ -85,7 +85,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           createdBy: row.created_by,
           createdAt: row.created_at,
           employees: row.employees,
-          employeeIds: row.employees.map((emp: any) => emp.id)
+          employeeIds: (row.employees || []).filter((emp: any) => emp && emp.id).map((emp: any) => emp.id)
         }));
 
         console.log(`Found ${tasks.length} tasks`);
@@ -119,8 +119,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             'INSERT INTO task_assignments (task_id, employee_id) VALUES ($1, $2)',
             [taskId, employeeId]
           );
-          
-          createdTasks.push(taskResult.rows[0]);
+
+          // Добавляем employee_id в результат
+          const taskWithEmployee = {
+            ...taskResult.rows[0],
+            employee_id: employeeId
+          };
+
+          createdTasks.push(taskWithEmployee);
         }
 
         await pool.query('COMMIT');
