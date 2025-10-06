@@ -246,7 +246,7 @@ const manualRefresh = async () => {
     try {
       await fetch(`/api/employees?id=${id}`, { method: 'DELETE' });
       setEmployees(employees.filter(e => e.id !== id));
-      setTasks(tasks.filter(t => !t.employeeIds.includes(id)));
+      setTasks(tasks.filter(t => !t.employeeIds?.includes(id)));
       if (selectedEmployee === id) setSelectedEmployee('all');
       if (currentUser?.id === id) setCurrentUser(null);
     } catch (error) {
@@ -622,13 +622,13 @@ const manualRefresh = async () => {
   };
 
   const getTasksForDate = (date: Date, employeeId: string | null = null) => {
-    const dateStr = formatDate(date);
-    return tasks.filter(t => {
-      const matchDate = t.date === dateStr;
-      const matchEmployee = employeeId ? t.employeeIds.includes(employeeId) : true;
-      return matchDate && matchEmployee;
-    });
-  };
+  const dateStr = formatDate(date);
+  return tasks.filter(t => {
+    const matchDate = t.date === dateStr;
+    const matchEmployee = employeeId ? t.employeeIds?.includes(employeeId) : true;
+    return matchDate && matchEmployee;
+  });
+};
 
   const getTaskPosition = (startTime: string) => {
     const [hours, minutes] = startTime.split(':').map(Number);
@@ -645,7 +645,7 @@ const manualRefresh = async () => {
 
   const isEmployeeAvailable = (employeeId: string, date: string, startTime: string, endTime: string) => {
     const conflictingTasks = tasks.filter(task => 
-      task.employeeIds.includes(employeeId) &&
+      task.employeeIds?.includes(employeeId) &&
       task.date === date &&
       task.id !== editingTask?.id &&
       ((startTime >= task.startTime && startTime < task.endTime) ||
