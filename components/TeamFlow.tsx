@@ -21,8 +21,13 @@ const WORK_END_HOUR = 22;
 const CELL_HEIGHT = 120; // Увеличено для лучшей видимости
 
 const HOUR_SLOTS = Array.from(
-  { length: WORK_END_HOUR - WORK_START_HOUR },
-  (_, i) => `${(i + WORK_START_HOUR).toString().padStart(2, '0')}:00`
+  { length: (WORK_END_HOUR - WORK_START_HOUR) * 2 },
+  (_, i) => {
+    const totalMinutes = WORK_START_HOUR * 60 + i * 30;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  }
 );
 
 const TeamFlow = () => {
@@ -631,17 +636,17 @@ const manualRefresh = async () => {
 };
 
   const getTaskPosition = (startTime: string) => {
-    const [hours, minutes] = startTime.split(':').map(Number);
-    const totalMinutes = (hours - WORK_START_HOUR) * 60 + minutes;
-    return (totalMinutes / 60) * CELL_HEIGHT;
-  };
+  const [hours, minutes] = startTime.split(':').map(Number);
+  const totalMinutes = (hours - WORK_START_HOUR) * 60 + minutes;
+  return (totalMinutes / 30) * CELL_HEIGHT; // Делим на 30 вместо 60
+};
 
   const getTaskHeight = (startTime: string, endTime: string) => {
-    const [startHours, startMinutes] = startTime.split(':').map(Number);
-    const [endHours, endMinutes] = endTime.split(':').map(Number);
-    const duration = (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes);
-    return (duration / 60) * CELL_HEIGHT;
-  };
+  const [startHours, startMinutes] = startTime.split(':').map(Number);
+  const [endHours, endMinutes] = endTime.split(':').map(Number);
+  const duration = (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes);
+  return (duration / 30) * CELL_HEIGHT; // Делим на 30 вместо 60
+};
 
   const isEmployeeAvailable = (employeeId: string, date: string, startTime: string, endTime: string) => {
     const conflictingTasks = tasks.filter(task => 
