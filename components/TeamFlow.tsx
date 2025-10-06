@@ -1027,7 +1027,7 @@ const SyncIndicator = () => {
 
         {employeesToShow.map(employee => (
           <div key={employee.id} className="flex-1 min-w-[300px] border-r border-gray-200 last:border-r-0">
-            <div className="h-16 border-b border-gray-200 px-4 py-2 bg-gradient-to-b from-gray-50 to-white">
+            <div className="h-16 border-b border-gray-200 px-4 py-2 bg-gradient-to-b from-gray-50 to-white sticky top-0 z-20">
               <div className="flex items-center gap-3">
                 <div
                   className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-md"
@@ -1202,42 +1202,98 @@ const SyncIndicator = () => {
   }
 
   if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-        <div className="max-w-4xl w-full">
-          <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <Calendar className="w-12 h-12 text-blue-600" />
-              <h1 className="text-5xl font-bold text-gray-800">DM</h1>
-            </div>
-            <p className="text-xl text-gray-600">Выберите свой профиль</p>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+      <div className="max-w-4xl w-full">
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Calendar className="w-12 h-12 text-blue-600" />
+            <h1 className="text-5xl font-bold text-gray-800">DM</h1>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {employees.map((emp) => (
+          <p className="text-xl text-gray-600">Выберите свой профиль</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {employees.map((emp) => (
+            <div
+              key={emp.id}
+              onClick={() => {
+                setCurrentUser(emp);
+                localStorage.setItem('currentUserId', emp.id);
+              }}
+              className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer"
+            >
               <div
-                key={emp.id}
-                onClick={() => {
-                  setCurrentUser(emp);
-                  localStorage.setItem('currentUserId', emp.id);
-                }}
-                className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer"
+                className="w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-2xl font-bold"
+                style={{ backgroundColor: emp.color }}
               >
-                <div
-                  className="w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-2xl font-bold"
-                  style={{ backgroundColor: emp.color }}
-                >
-                  {emp.avatar}
-                </div>
-                <h3 className="text-xl font-semibold text-center mb-1">{emp.name}</h3>
-                <p className="text-gray-500 text-center">{emp.position}</p>
+                {emp.avatar}
               </div>
-            ))}
+              <h3 className="text-xl font-semibold text-center mb-1">{emp.name}</h3>
+              <p className="text-gray-500 text-center">{emp.position}</p>
+            </div>
+          ))}
+          
+          {/* Кнопка создания нового профиля */}
+          <div
+            onClick={() => setShowEmployeeModal(true)}
+            className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer border-2 border-dashed border-gray-300 flex flex-col items-center justify-center"
+          >
+            <div className="w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center bg-gray-100 text-gray-400">
+              <Plus className="w-10 h-10" />
+            </div>
+            <h3 className="text-xl font-semibold text-center text-gray-600">Создать профиль</h3>
           </div>
         </div>
       </div>
-    );
-  }
+      
+      {/* Модальное окно создания сотрудника */}
+      {showEmployeeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <h2 className="text-2xl font-bold mb-6">Новый сотрудник</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Имя и фамилия *</label>
+                <input
+                  type="text"
+                  value={employeeForm.name}
+                  onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Димаш Кудайберген"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Должность</label>
+                <input
+                  type="text"
+                  value={employeeForm.position}
+                  onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Менеджер"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowEmployeeModal(false)}
+                className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={addEmployee}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
