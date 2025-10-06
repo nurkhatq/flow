@@ -38,6 +38,9 @@ const TeamFlow = () => {
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTemplateListModal, setShowTemplateListModal] = useState(false);
+  const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
@@ -75,6 +78,23 @@ const TeamFlow = () => {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!isAutoRefreshEnabled || !currentUser) return;
+
+    const REFRESH_INTERVAL = 10000; // 10 секунд
+
+    const intervalId = setInterval(() => {
+      console.log('🔄 Автообновление данных...');
+      fetchTasks(true);
+      if (currentUser) {
+        fetchNotifications(currentUser.id, true);
+      }
+      fetchEmployees();
+    }, REFRESH_INTERVAL);
+
+    return () => clearInterval(intervalId);
+  }, [isAutoRefreshEnabled, currentUser, tasks, notifications]);
+
   const fetchEmployees = async () => {
     try {
       const response = await fetch('/api/employees');
@@ -84,18 +104,44 @@ const TeamFlow = () => {
       console.error('Error fetching employees:', error);
     }
   };
-
-  const fetchTasks = async () => {
+const manualRefresh = async () => {
+  setIsSyncing(true);
+  await Promise.all([
+    fetchTasks(false),
+    currentUser ? fetchNotifications(currentUser.id, false) : Promise.resolve(),
+    fetchEmployees()
+  ]);
+  setIsSyncing(false);
+  setLastSyncTime(new Date());
+};
+  const fetchTasks = async (showSyncIndicator = false) => {
     try {
+      if (showSyncIndicator) setIsSyncing(true);
+      
       console.log('Fetching tasks...');
       const response = await fetch('/api/tasks');
       const data = await response.json();
       console.log('Tasks received:', data);
-      setTasks(data);
+      
+      // Проверяем, изменились ли данные
+      const tasksChanged = JSON.stringify(tasks) !== JSON.stringify(data);
+      
+      if (tasksChanged) {
+        setTasks(data);
+        setLastSyncTime(new Date());
+        
+        // Показываем уведомление о новых данных
+        if (showSyncIndicator && tasks.length > 0) {
+          console.log('📥 Получены обновленные данные');
+        }
+      }
     } catch (error) {
       console.error('Error fetching tasks:', error);
+    } finally {
+      if (showSyncIndicator) setIsSyncing(false);
     }
   };
+
 
   const fetchTemplates = async () => {
     try {
@@ -107,15 +153,32 @@ const TeamFlow = () => {
     }
   };
 
-  const fetchNotifications = async (employeeId: string) => {
+  const fetchNotifications = async (employeeId: string, showSyncIndicator = false) => {
     try {
+      if (showSyncIndicator) setIsSyncing(true);
+      
       const response = await fetch(`/api/notifications?employeeId=${employeeId}`);
       const data = await response.json();
-      setNotifications(data);
+      
+      // Проверяем новые уведомления
+      const newNotifications = data.filter((newNotif: Notification) => 
+        !notifications.some(existingNotif => existingNotif.id === newNotif.id)
+      );
+      
+      if (newNotifications.length > 0) {
+        console.log(`🔔 Получено ${newNotifications.length} новых уведомлений`);
+        setNotifications(data);
+        setLastSyncTime(new Date());
+      } else if (data.length !== notifications.length) {
+        setNotifications(data);
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
+    } finally {
+      if (showSyncIndicator) setIsSyncing(false);
     }
   };
+
 
   const generateAvatar = (name: string): string => {
     const parts = name.trim().split(' ');
@@ -616,6 +679,69 @@ const TeamFlow = () => {
       </div>
     );
   };
+const SyncIndicator = () => {
+  const formatLastSync = () => {
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - lastSyncTime.getTime()) / 1000);
+    
+    if (diff < 60) return `${diff} сек назад`;
+    if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
+    return lastSyncTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      {/* Кнопка ручного обновления */}
+      <button
+        onClick={manualRefresh}
+        disabled={isSyncing}
+        className="p-2 hover:bg-gray-100 rounded-lg transition-colors relative group"
+        title="Обновить вручную"
+      >
+        <svg 
+          className={`w-5 h-5 ${isSyncing ? 'animate-spin text-blue-600' : 'text-gray-600'}`} 
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+          />
+        </svg>
+        
+        {/* Подсказка с временем */}
+        <div className="absolute top-full right-0 mt-2 px-3 py-1 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+          Обновлено {formatLastSync()}
+        </div>
+      </button>
+
+      {/* Переключатель автообновления */}
+      <button
+        onClick={() => setIsAutoRefreshEnabled(!isAutoRefreshEnabled)}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+          isAutoRefreshEnabled 
+            ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+        }`}
+        title={isAutoRefreshEnabled ? 'Автообновление включено' : 'Автообновление выключено'}
+      >
+        <div className={`w-2 h-2 rounded-full ${isAutoRefreshEnabled ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+        {isAutoRefreshEnabled ? 'Авто' : 'Выкл'}
+      </button>
+
+      {/* Индикатор синхронизации */}
+      {isSyncing && (
+        <div className="flex items-center gap-2 text-xs text-blue-600">
+          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <span>Синхронизация...</span>
+        </div>
+      )}
+    </div>
+  );
+};
 
   const renderMonthView = () => {
     const monthDates = getMonthDates(currentDate);
@@ -814,143 +940,163 @@ const TeamFlow = () => {
   };
 
   const renderDayView = () => {
-    const employeesToShow = selectedEmployee === 'all' 
-      ? employees 
-      : employees.filter(e => e.id === selectedEmployee);
+  const employeesToShow = selectedEmployee === 'all' 
+    ? employees 
+    : employees.filter(e => e.id === selectedEmployee);
 
-    const handleTimeSlotClick = (date: Date, time: string, employeeId: string) => {
-      const formattedDate = formatDate(date);
-      const existingTasks = getTasksForDate(date, employeeId);
-      const [clickedHour, clickedMinute] = time.split(':').map(Number);
-      const clickedTimeInMinutes = clickedHour * 60 + clickedMinute;
+  const handleTimeSlotClick = (date: Date, time: string, employeeId: string) => {
+    const formattedDate = formatDate(date);
+    const existingTasks = getTasksForDate(date, employeeId);
+    const [clickedHour, clickedMinute] = time.split(':').map(Number);
+    const clickedTimeInMinutes = clickedHour * 60 + clickedMinute;
 
-      let startTimeInMinutes = clickedTimeInMinutes;
-      let foundConflict = true;
+    let startTimeInMinutes = clickedTimeInMinutes;
+    let foundConflict = true;
 
-      while (foundConflict) {
-        foundConflict = false;
-        for (const task of existingTasks) {
-          const [taskStartHour, taskStartMinute] = task.startTime.split(':').map(Number);
-          const [taskEndHour, taskEndMinute] = task.endTime.split(':').map(Number);
-          const taskStartInMinutes = taskStartHour * 60 + taskStartMinute;
-          const taskEndInMinutes = taskEndHour * 60 + taskEndMinute;
+    while (foundConflict) {
+      foundConflict = false;
+      for (const task of existingTasks) {
+        const [taskStartHour, taskStartMinute] = task.startTime.split(':').map(Number);
+        const [taskEndHour, taskEndMinute] = task.endTime.split(':').map(Number);
+        const taskStartInMinutes = taskStartHour * 60 + taskStartMinute;
+        const taskEndInMinutes = taskEndHour * 60 + taskEndMinute;
 
-          if (startTimeInMinutes >= taskStartInMinutes && startTimeInMinutes < taskEndInMinutes) {
-            startTimeInMinutes = taskEndInMinutes;
-            foundConflict = true;
-            break;
-          }
+        if (startTimeInMinutes >= taskStartInMinutes && startTimeInMinutes < taskEndInMinutes) {
+          startTimeInMinutes = taskEndInMinutes;
+          foundConflict = true;
+          break;
         }
       }
+    }
 
-      const startHours = Math.floor(startTimeInMinutes / 60);
-      const startMinutes = startTimeInMinutes % 60;
-      const startTime = `${startHours.toString().padStart(2, '0')}:${startMinutes.toString().padStart(2, '0')}`;
-      
-      const endTime = calculateEndTime(startTime, 60);
+    const startHours = Math.floor(startTimeInMinutes / 60);
+    const startMinutes = startTimeInMinutes % 60;
+    const startTime = `${startHours.toString().padStart(2, '0')}:${startMinutes.toString().padStart(2, '0')}`;
+    const endTime = calculateEndTime(startTime, 60);
+    openTaskModal(null, date, startTime, employeeId);
+  };
 
-      openTaskModal(null, date, startTime, employeeId);
-    };
+  return (
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div className="flex overflow-x-auto">
+        <div className="w-20 flex-shrink-0 border-r border-gray-200">
+          <div className="h-16 border-b border-gray-200"></div>
+          {HOUR_SLOTS.map(time => (
+            <div 
+              key={time} 
+              style={{ height: `${CELL_HEIGHT}px` }} 
+              className="flex items-start justify-end pr-3 pt-1 text-xs font-medium text-gray-500 border-b border-gray-100"
+            >
+              {time}
+            </div>
+          ))}
+        </div>
 
-    return (
-      <div className="bg-white rounded-xl shadow-lg p-4 overflow-x-auto">
-        <div className="flex">
-          <div className="w-20 flex-shrink-0">
-            <div className="h-24"></div>
-            {HOUR_SLOTS.map(time => (
-              <div key={time} style={{ height: `${CELL_HEIGHT}px` }} className="flex items-start justify-end pr-2 text-xs text-gray-500 border-b border-gray-100">
-                {time}
-              </div>
-            ))}
-          </div>
-
-          {employeesToShow.map(employee => (
-            <div key={employee.id} className="flex-1 min-w-[250px] border-l border-gray-200">
-              <div className="h-24 pb-2 mb-2 px-2">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                    style={{ backgroundColor: employee.color }}
-                  >
-                    {employee.avatar}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm">{employee.name}</div>
-                    <div className="text-xs text-gray-500">{employee.position}</div>
-                  </div>
+        {employeesToShow.map(employee => (
+          <div key={employee.id} className="flex-1 min-w-[300px] border-r border-gray-200 last:border-r-0">
+            <div className="h-16 border-b border-gray-200 px-4 py-2 bg-gradient-to-b from-gray-50 to-white">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-md"
+                  style={{ backgroundColor: employee.color }}
+                >
+                  {employee.avatar}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{employee.name}</div>
+                  <div className="text-xs text-gray-500 truncate">{employee.position}</div>
                 </div>
               </div>
+            </div>
 
-              <div className="relative">
-                {HOUR_SLOTS.map(time => (
-                  <div
-                    key={time}
-                    onClick={() => handleTimeSlotClick(currentDate, time, employee.id)}
-                    className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                    style={{ height: `${CELL_HEIGHT}px` }}
-                  />
-                ))}
+            <div className="relative">
+              {HOUR_SLOTS.map(time => (
+                <div
+                  key={time}
+                  onClick={() => handleTimeSlotClick(currentDate, time, employee.id)}
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  style={{ height: `${CELL_HEIGHT}px` }}
+                />
+              ))}
+              
+              {getTasksForDate(currentDate, employee.id).map(task => {
+                const taskHeight = getTaskHeight(task.startTime, task.endTime);
+                const isSmallTask = taskHeight < 50;
+                const status = task.status || 'pending';
                 
-                {getTasksForDate(currentDate, employee.id).map(task => {
-                  const taskHeight = getTaskHeight(task.startTime, task.endTime);
-                  const isSmallTask = taskHeight < 60;
-                  const status = task.status || 'pending';
-                  
-                  return (
-                    <div
-                      key={task.id}
-                      onClick={() => openTaskModal(task)}
-                      style={{
-                        position: 'absolute',
-                        top: `${getTaskPosition(task.startTime)}px`,
-                        height: `${taskHeight}px`,
-                        left: '4px',
-                        right: '4px',
-                        backgroundColor: PRIORITY_COLORS[task.priority].color + '20',
-                        borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
-                        opacity: task.completed ? 0.6 : 1
-                      }}
-                      className="rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all overflow-hidden group"
+                return (
+                  <div
+                    key={task.id}
+                    onClick={() => openTaskModal(task)}
+                    style={{
+                      position: 'absolute',
+                      top: `${getTaskPosition(task.startTime)}px`,
+                      height: `${taskHeight}px`,
+                      left: '6px',
+                      right: '6px',
+                      backgroundColor: PRIORITY_COLORS[task.priority].color + '15',
+                      borderLeft: `4px solid ${PRIORITY_COLORS[task.priority].color}`,
+                      opacity: task.completed ? 0.7 : 1
+                    }}
+                    className="rounded-lg cursor-pointer hover:shadow-lg transition-all overflow-hidden group"
+                  >
+                    <div 
+                      onClick={(e) => toggleTaskStatus(e, task)}
+                      className={`absolute top-2 right-2 w-8 h-8 ${TASK_STATUSES[status].bg} rounded-full flex items-center justify-center text-lg cursor-pointer hover:scale-125 transition-transform shadow-md z-10`}
+                      title={`${TASK_STATUSES[status].label} - кликните для изменения`}
                     >
-                      <div 
-                        onClick={(e) => toggleTaskStatus(e, task)}
-                        className={`absolute top-1 right-1 w-6 h-6 ${TASK_STATUSES[status].bg} rounded-full flex items-center justify-center text-xs cursor-pointer hover:scale-110 transition-transform z-10`}
-                        title={`${TASK_STATUSES[status].label} - кликните для изменения`}
-                      >
-                        {TASK_STATUSES[status].icon}
-                      </div>
+                      {TASK_STATUSES[status].icon}
+                    </div>
 
+                    <div className="p-3 h-full flex flex-col">
                       {isSmallTask ? (
                         <div className="flex items-center gap-2 h-full">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold truncate">{task.title}</div>
-                          </div>
-                          <div className="text-xs text-gray-600 whitespace-nowrap">
-                            {task.startTime}-{task.endTime}
+                          <div className="flex-1 min-w-0 pr-10">
+                            <div className="text-sm font-semibold truncate mb-0.5">{task.title}</div>
+                            <div className="text-xs text-gray-600 font-medium">
+                              {task.startTime} - {task.endTime}
+                            </div>
                           </div>
                         </div>
                       ) : (
                         <>
-                          <div className="text-sm font-medium line-clamp-2 pr-7">{task.title}</div>
-                          <div className="text-xs text-gray-600 mt-1">{task.startTime} - {task.endTime}</div>
+                          <div className="pr-10 mb-2">
+                            <div className="text-base font-bold mb-1 line-clamp-2">{task.title}</div>
+                            <div className="flex items-center gap-2 text-xs text-gray-600">
+                              <span className="font-semibold">⏰ {task.startTime} - {task.endTime}</span>
+                              <span className={`px-2 py-0.5 rounded-full font-semibold ${TASK_STATUSES[status].bg} ${TASK_STATUSES[status].text}`}>
+                                {TASK_STATUSES[status].label}
+                              </span>
+                            </div>
+                          </div>
+                          
                           {task.description && (
-                            <div className="text-xs text-gray-500 mt-1 line-clamp-2">{task.description}</div>
+                            <div className="text-xs text-gray-600 line-clamp-3 mb-2 bg-white bg-opacity-50 rounded p-2">
+                              {task.description}
+                            </div>
                           )}
-                          <div className={`text-xs ${TASK_STATUSES[status].text} mt-1 font-medium`}>
-                            {TASK_STATUSES[status].label}
+
+                          <div className="mt-auto">
+                            <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${PRIORITY_COLORS[task.priority].bg} ${PRIORITY_COLORS[task.priority].text}`}>
+                              {task.priority === 'low' && '🟢 Низкий'}
+                              {task.priority === 'medium' && '🟡 Средний'}
+                              {task.priority === 'high' && '🟠 Высокий'}
+                              {task.priority === 'urgent' && '🔴 Срочный'}
+                            </span>
                           </div>
                         </>
                       )}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   if (!currentUser && employees.length === 0) {
     return (
@@ -1126,7 +1272,7 @@ const TeamFlow = () => {
                   Месяц
                 </button>
               </div>
-
+              <SyncIndicator />
               <button
                 onClick={() => setShowTemplateListModal(true)}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
