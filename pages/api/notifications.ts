@@ -35,8 +35,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           [queryEmployeeId]
         );
         
-        console.log(`Found ${result.rows.length} notifications`);
-        res.status(200).json(result.rows);
+        // Преобразуем snake_case в camelCase
+        const notifications = result.rows.map(row => ({
+          id: row.id,
+          employeeId: row.employee_id,  // ← Важно!
+          taskId: row.task_id,
+          message: row.message,
+          read: row.read,
+          created_at: row.created_at
+        }));
+        
+        console.log(`Found ${notifications.length} notifications`);
+        res.status(200).json(notifications);
         break;
 
       case 'POST':
